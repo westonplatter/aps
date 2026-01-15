@@ -34,8 +34,5 @@ hex = "0.4"
 # File operations
 walkdir = "2"
 
-# Git operations
-git2 = "0.19"
-
 # Temp directories for git clones
 tempfile = "3"

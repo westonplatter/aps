@@ -9,6 +9,18 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
+/// Normalize a path by removing trailing slashes
+/// This prevents issues with path operations like parent()
+fn normalize_path(path: &Path) -> PathBuf {
+    let path_str = path.to_string_lossy();
+    let trimmed = path_str.trim_end_matches('/').trim_end_matches('\\');
+    if trimmed.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(trimmed)
+    }
+}
+
 /// Options for the install operation
 pub struct InstallOptions {
     pub dry_run: bool,
@@ -106,8 +118,20 @@ pub fn install_entry(
     debug!("Destination path: {:?}", dest_path);
 
     // Check for conflicts
+    // For directory assets (CursorRules, CursorSkillsRoot) using symlinks, we use
+    // file-level symlinks which can coexist with other files in the directory.
+    // Only check for conflicts on single-file assets or when copying.
     let mut backed_up = false;
-    if has_conflict(&dest_path) {
+    let should_check_conflict = match entry.kind {
+        AssetKind::AgentsMd => true, // Single file - always check
+        AssetKind::CursorRules | AssetKind::CursorSkillsRoot => {
+            // For directory assets with symlinks, we add files to the directory
+            // without backing up existing content from other sources
+            !resolved.use_symlink
+        }
+    };
+
+    if should_check_conflict && has_conflict(&dest_path) {
         info!("Conflict detected at {:?}", dest_path);
 
         if options.dry_run {
@@ -295,10 +319,10 @@ fn install_asset(
         AssetKind::CursorRules | AssetKind::CursorSkillsRoot => {
             if use_symlink {
                 if include.is_empty() {
-                    // Symlink entire directory
-                    create_symlink(source, dest)?;
-                    symlinked_items.push(source.to_string_lossy().to_string());
-                    debug!("Symlinked directory {:?} to {:?}", source, dest);
+                    // Symlink individual files (not the directory itself)
+                    // This allows multiple sources to contribute to the same dest
+                    symlink_directory_files(source, dest, &mut symlinked_items)?;
+                    debug!("Symlinked directory files from {:?} to {:?}", source, dest);
                 } else {
                     // Filter and symlink individual items
                     let items = filter_by_prefix(source, include)?;
@@ -358,6 +382,41 @@ fn install_asset(
     Ok(symlinked_items)
 }
 
+/// Recursively symlink all files in a directory, creating real directories for structure.
+/// This allows multiple sources to contribute files to the same destination directory.
+fn symlink_directory_files(
+    source: &Path,
+    dest: &Path,
+    symlinked_items: &mut Vec<String>,
+) -> Result<()> {
+    // Create destination directory if it doesn't exist
+    if !dest.exists() {
+        std::fs::create_dir_all(dest)
+            .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dest)))?;
+    }
+
+    for entry in std::fs::read_dir(source)
+        .map_err(|e| ApsError::io(e, format!("Failed to read directory {:?}", source)))?
+    {
+        let entry = entry.map_err(|e| ApsError::io(e, "Failed to read directory entry"))?;
+        let entry_path = entry.path();
+        let entry_name = entry.file_name();
+        let dest_path = dest.join(&entry_name);
+
+        if entry_path.is_dir() {
+            // Recurse into subdirectory (create real directory at dest)
+            symlink_directory_files(&entry_path, &dest_path, symlinked_items)?;
+        } else {
+            // Symlink individual file
+            create_symlink(&entry_path, &dest_path)?;
+            symlinked_items.push(entry_path.to_string_lossy().to_string());
+            debug!("Symlinked file {:?} to {:?}", entry_path, dest_path);
+        }
+    }
+
+    Ok(())
+}
+
 /// Filter directory entries by prefix
 fn filter_by_prefix(source_dir: &Path, prefixes: &[String]) -> Result<Vec<PathBuf>> {
     let mut matches = Vec::new();
@@ -385,18 +444,30 @@ fn filter_by_prefix(source_dir: &Path, prefixes: &[String]) -> Result<Vec<PathBu
 /// Create a symbolic link (platform-specific)
 #[cfg(unix)]
 fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
+    // Normalize paths to handle trailing slashes
+    let dest = normalize_path(dest);
+    let source = normalize_path(source);
+
+    // Ensure parent directory exists
+    if let Some(parent) = dest.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ApsError::io(e, format!("Failed to create parent directory {:?}", parent)))?;
+        }
+    }
+
     // Remove existing destination if present
     if dest.exists() || dest.symlink_metadata().is_ok() {
         if dest.is_dir() && !dest.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
-            std::fs::remove_dir_all(dest)
+            std::fs::remove_dir_all(&dest)
                 .map_err(|e| ApsError::io(e, format!("Failed to remove directory {:?}", dest)))?;
         } else {
-            std::fs::remove_file(dest)
+            std::fs::remove_file(&dest)
                 .map_err(|e| ApsError::io(e, format!("Failed to remove file {:?}", dest)))?;
         }
     }
 
-    std::os::unix::fs::symlink(source, dest)
+    std::os::unix::fs::symlink(&source, &dest)
         .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
 
     Ok(())
@@ -404,22 +475,34 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
+    // Normalize paths to handle trailing slashes
+    let dest = normalize_path(dest);
+    let source = normalize_path(source);
+
+    // Ensure parent directory exists
+    if let Some(parent) = dest.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ApsError::io(e, format!("Failed to create parent directory {:?}", parent)))?;
+        }
+    }
+
     // Remove existing destination if present
     if dest.exists() {
         if dest.is_dir() {
-            std::fs::remove_dir_all(dest)
+            std::fs::remove_dir_all(&dest)
                 .map_err(|e| ApsError::io(e, format!("Failed to remove directory {:?}", dest)))?;
         } else {
-            std::fs::remove_file(dest)
+            std::fs::remove_file(&dest)
                 .map_err(|e| ApsError::io(e, format!("Failed to remove file {:?}", dest)))?;
         }
     }
 
     if source.is_dir() {
-        std::os::windows::fs::symlink_dir(source, dest)
+        std::os::windows::fs::symlink_dir(&source, &dest)
             .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
     } else {
-        std::os::windows::fs::symlink_file(source, dest)
+        std::os::windows::fs::symlink_file(&source, &dest)
             .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
     }
 
@@ -462,15 +545,27 @@ fn validate_skills_root(source: &Path, strict: bool) -> Result<Vec<String>> {
 
 /// Copy a directory recursively
 fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
+    // Normalize paths to handle trailing slashes
+    let src = normalize_path(src);
+    let dst = normalize_path(dst);
+
+    // Ensure parent directory exists first
+    if let Some(parent) = dst.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ApsError::io(e, format!("Failed to create parent directory {:?}", parent)))?;
+        }
+    }
+
     if dst.exists() {
-        std::fs::remove_dir_all(dst)
+        std::fs::remove_dir_all(&dst)
             .map_err(|e| ApsError::io(e, format!("Failed to remove existing directory {:?}", dst)))?;
     }
 
-    std::fs::create_dir_all(dst)
+    std::fs::create_dir_all(&dst)
         .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dst)))?;
 
-    for entry in std::fs::read_dir(src)
+    for entry in std::fs::read_dir(&src)
         .map_err(|e| ApsError::io(e, format!("Failed to read directory {:?}", src)))?
     {
         let entry = entry.map_err(|e| ApsError::io(e, "Failed to read directory entry"))?;

@@ -68,7 +68,17 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 
 /// Check if a destination has a conflict
 pub fn has_conflict(dest_path: &Path) -> bool {
-    if !dest_path.exists() {
+    // Check if path exists (including broken symlinks)
+    let metadata = dest_path.symlink_metadata();
+    if metadata.is_err() {
+        return false;
+    }
+
+    let meta = metadata.unwrap();
+
+    // Symlinks are not conflicts - they're from previous aps installs
+    // and can be safely replaced without backup
+    if meta.file_type().is_symlink() {
         return false;
     }
 
@@ -76,12 +86,46 @@ pub fn has_conflict(dest_path: &Path) -> bool {
         // File exists - conflict
         true
     } else if dest_path.is_dir() {
-        // Directory exists and is non-empty - conflict (v0 simplification)
+        // Check if directory contains only symlinks (from previous aps installs)
+        // If so, it's not a conflict
+        if is_aps_managed_dir(dest_path) {
+            return false;
+        }
+        // Directory exists and has non-symlink content - conflict
         match std::fs::read_dir(dest_path) {
             Ok(mut entries) => entries.next().is_some(),
             Err(_) => false,
         }
     } else {
         false
+    }
+}
+
+/// Check if a directory contains only symlinks (indicating it's managed by aps)
+fn is_aps_managed_dir(dir_path: &Path) -> bool {
+    match std::fs::read_dir(dir_path) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if let Ok(meta) = path.symlink_metadata() {
+                        if meta.file_type().is_symlink() {
+                            continue;
+                        }
+                        // Found a non-symlink - check if it's a directory with only symlinks
+                        if path.is_dir() {
+                            if !is_aps_managed_dir(&path) {
+                                return false;
+                            }
+                        } else {
+                            // Found a regular file - not aps managed
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        }
+        Err(_) => false,
     }
 }

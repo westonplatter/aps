@@ -1,13 +1,13 @@
 use crate::error::{ApsError, Result};
-use git2::{FetchOptions, RemoteCallbacks, Repository};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use tempfile::TempDir;
 use tracing::{debug, info};
 
 /// Result of resolving a git source
 pub struct ResolvedGitSource {
     /// Temp directory containing the clone (must be kept alive)
-    pub temp_dir: TempDir,
+    pub _temp_dir: TempDir,
     /// Path to the cloned repository
     pub repo_path: PathBuf,
     /// Resolved ref name (e.g., "main", "master", or the original ref)
@@ -16,7 +16,8 @@ pub struct ResolvedGitSource {
     pub commit_sha: String,
 }
 
-/// Clone a git repository and resolve the ref
+/// Clone a git repository and resolve the ref using the git CLI.
+/// This inherits the user's existing git configuration (SSH, credentials, etc.)
 pub fn clone_and_resolve(url: &str, git_ref: &str, shallow: bool) -> Result<ResolvedGitSource> {
     info!("Cloning git repository: {}", url);
 
@@ -26,52 +27,38 @@ pub fn clone_and_resolve(url: &str, git_ref: &str, shallow: bool) -> Result<Reso
 
     let repo_path = temp_dir.path().to_path_buf();
 
-    // Determine if this is an SSH URL (needs credentials)
-    let is_ssh = url.starts_with("git@") || url.starts_with("ssh://");
-
-    // For shallow clones with auto ref, we need to try different branches
+    // For auto ref, we need to try different branches
     let refs_to_try = if git_ref == "auto" {
         vec!["main", "master"]
     } else {
         vec![git_ref]
     };
 
-    let (repo, resolved_ref) = clone_with_ref_fallback(url, &repo_path, &refs_to_try, shallow, is_ssh)?;
+    let resolved_ref = clone_with_ref_fallback(url, &repo_path, &refs_to_try, shallow)?;
 
     // Get the commit SHA
-    let head = repo.head().map_err(|e| ApsError::GitError {
-        message: format!("Failed to get HEAD: {}", e),
-    })?;
-
-    let commit_sha = head
-        .peel_to_commit()
-        .map_err(|e| ApsError::GitError {
-            message: format!("Failed to get commit: {}", e),
-        })?
-        .id()
-        .to_string();
+    let commit_sha = get_head_commit(&repo_path)?;
 
     info!(
         "Cloned {} at ref '{}' (commit {})",
-        url, resolved_ref, &commit_sha[..8]
+        url, resolved_ref, &commit_sha[..8.min(commit_sha.len())]
     );
 
     Ok(ResolvedGitSource {
-        temp_dir,
+        _temp_dir: temp_dir,
         repo_path,
         resolved_ref,
         commit_sha,
     })
 }
 
-/// Try to clone with fallback refs
+/// Try to clone with fallback refs using git CLI
 fn clone_with_ref_fallback(
     url: &str,
     path: &Path,
     refs: &[&str],
     shallow: bool,
-    is_ssh: bool,
-) -> Result<(Repository, String)> {
+) -> Result<String> {
     let mut last_error = None;
 
     for ref_name in refs {
@@ -82,40 +69,37 @@ fn clone_with_ref_fallback(
             let _ = std::fs::remove_dir_all(path);
         }
 
-        // Create fresh builder and fetch options for each attempt
-        let mut builder = git2::build::RepoBuilder::new();
-        let mut fetch_opts = FetchOptions::new();
-
-        // Only add credentials callback for SSH URLs
-        if is_ssh {
-            let mut callbacks = RemoteCallbacks::new();
-            callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                git2::Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-            });
-            fetch_opts.remote_callbacks(callbacks);
-        }
+        // Build git clone command
+        let mut cmd = Command::new("git");
+        cmd.arg("clone");
 
         if shallow {
-            fetch_opts.depth(1);
+            cmd.arg("--depth").arg("1");
         }
 
-        builder.fetch_options(fetch_opts);
-        builder.branch(ref_name);
+        cmd.arg("--branch").arg(ref_name);
+        cmd.arg("--single-branch");
+        cmd.arg(url);
+        cmd.arg(path);
 
-        match builder.clone(url, path) {
-            Ok(repo) => {
-                return Ok((repo, ref_name.to_string()));
-            }
-            Err(e) => {
-                debug!("Failed to clone with ref '{}': {}", ref_name, e);
-                last_error = Some(e);
-            }
+        debug!("Running: git clone --branch {} {}", ref_name, url);
+
+        let output = cmd.output().map_err(|e| ApsError::GitError {
+            message: format!("Failed to execute git command: {}", e),
+        })?;
+
+        if output.status.success() {
+            return Ok(ref_name.to_string());
         }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!("Failed to clone with ref '{}': {}", ref_name, stderr);
+        last_error = Some(stderr.to_string());
     }
 
-    // All refs failed - include the last error in the message
+    // All refs failed
     let error_detail = last_error
-        .map(|e| format!(": {}", e))
+        .map(|e| format!(": {}", e.trim()))
         .unwrap_or_default();
 
     Err(ApsError::GitError {
@@ -127,79 +111,26 @@ fn clone_with_ref_fallback(
     })
 }
 
-/// Validate that a path exists in the repository
-pub fn validate_path_exists(repo_path: &Path, asset_path: &str) -> Result<PathBuf> {
-    let full_path = repo_path.join(asset_path);
-
-    if !full_path.exists() {
-        return Err(ApsError::SourcePathNotFound { path: full_path });
-    }
-
-    debug!("Validated path exists: {:?}", full_path);
-    Ok(full_path)
-}
-
-/// Fetch updates to an existing repository
-pub fn fetch_and_checkout(repo_path: &Path, git_ref: &str) -> Result<(String, String)> {
-    let repo = Repository::open(repo_path).map_err(|e| ApsError::GitError {
-        message: format!("Failed to open repository: {}", e),
-    })?;
-
-    // Fetch from origin
-    let mut remote = repo.find_remote("origin").map_err(|e| ApsError::GitError {
-        message: format!("Failed to find remote 'origin': {}", e),
-    })?;
-
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.credentials(|_url, username_from_url, _allowed_types| {
-        git2::Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-    });
-
-    let mut fetch_opts = FetchOptions::new();
-    fetch_opts.remote_callbacks(callbacks);
-
-    remote
-        .fetch(&[git_ref], Some(&mut fetch_opts), None)
+/// Get the HEAD commit SHA using git CLI
+fn get_head_commit(repo_path: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
         .map_err(|e| ApsError::GitError {
-            message: format!("Failed to fetch: {}", e),
+            message: format!("Failed to execute git rev-parse: {}", e),
         })?;
 
-    // Get the fetched commit
-    let fetch_head = repo.find_reference("FETCH_HEAD").map_err(|e| ApsError::GitError {
-        message: format!("Failed to find FETCH_HEAD: {}", e),
-    })?;
-
-    let commit = fetch_head.peel_to_commit().map_err(|e| ApsError::GitError {
-        message: format!("Failed to get commit: {}", e),
-    })?;
-
-    let commit_sha = commit.id().to_string();
-
-    // Checkout the commit
-    let obj = commit.into_object();
-    repo.checkout_tree(&obj, None).map_err(|e| ApsError::GitError {
-        message: format!("Failed to checkout: {}", e),
-    })?;
-
-    Ok((git_ref.to_string(), commit_sha))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_path_exists() {
-        let temp_dir = TempDir::new().unwrap();
-        let test_file = temp_dir.path().join("test.txt");
-        std::fs::write(&test_file, "test").unwrap();
-
-        // Should succeed for existing file
-        let result = validate_path_exists(temp_dir.path(), "test.txt");
-        assert!(result.is_ok());
-
-        // Should fail for non-existing file
-        let result = validate_path_exists(temp_dir.path(), "nonexistent.txt");
-        assert!(result.is_err());
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ApsError::GitError {
+            message: format!("Failed to get HEAD commit: {}", stderr.trim()),
+        });
     }
+
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(sha)
 }
+
