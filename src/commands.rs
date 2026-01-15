@@ -224,14 +224,19 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
 
     println!("\nValidating entries:");
     for entry in &manifest.entries {
+        let path = entry.source.path();
         match &entry.source {
-            crate::manifest::Source::Filesystem { root } => {
+            crate::manifest::Source::Filesystem { root, .. } => {
                 let root_path = if Path::new(root).is_absolute() {
                     std::path::PathBuf::from(root)
                 } else {
                     base_dir.join(root)
                 };
-                let source_path = root_path.join(&entry.path);
+                let source_path = if path == "." {
+                    root_path.clone()
+                } else {
+                    root_path.join(path)
+                };
 
                 if !source_path.exists() {
                     let warning = format!("Source path not found: {:?}", source_path);
@@ -249,17 +254,21 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
                     println!("  [OK] {} (filesystem: {})", entry.id, root);
                 }
             }
-            crate::manifest::Source::Git { url, r#ref, shallow } => {
+            crate::manifest::Source::Git { repo, r#ref, shallow, .. } => {
                 // Validate git source by attempting to clone
-                print!("  [..] {} (git: {}) - checking...", entry.id, url);
+                print!("  [..] {} (git: {}) - checking...", entry.id, repo);
                 std::io::stdout().flush().ok();
 
-                match clone_and_resolve(url, r#ref, *shallow) {
+                match clone_and_resolve(repo, r#ref, *shallow) {
                     Ok(resolved) => {
                         // Check if path exists in repo
-                        let source_path = resolved.repo_path.join(&entry.path);
+                        let source_path = if path == "." {
+                            resolved.repo_path.clone()
+                        } else {
+                            resolved.repo_path.join(path)
+                        };
                         if !source_path.exists() {
-                            let warning = format!("Path '{}' not found in repository", entry.path);
+                            let warning = format!("Path '{}' not found in repository", path);
                             if args.strict {
                                 println!(" FAILED");
                                 return Err(ApsError::SourcePathNotFound { path: source_path });
@@ -273,7 +282,7 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
                                 let skill_warnings = validate_skills_for_validate(&source_path, &entry.id, args.strict)?;
                                 warnings.extend(skill_warnings);
                             }
-                            println!("\r  [OK] {} (git: {} @ {})", entry.id, url, resolved.resolved_ref);
+                            println!("\r  [OK] {} (git: {} @ {})", entry.id, repo, resolved.resolved_ref);
                         }
                     }
                     Err(e) => {

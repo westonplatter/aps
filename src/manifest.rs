@@ -35,12 +35,13 @@ pub struct Entry {
     /// The source to pull from
     pub source: Source,
 
-    /// Path within the source to the asset
-    pub path: String,
-
     /// Optional destination override
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dest: Option<String>,
+
+    /// Optional list of prefixes to filter which files/folders to sync
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<String>,
 }
 
 impl Entry {
@@ -51,9 +52,11 @@ impl Entry {
             kind: AssetKind::AgentsMd,
             source: Source::Filesystem {
                 root: "../shared-assets".to_string(),
+                symlink: true,
+                path: Some("AGENTS.md".to_string()),
             },
-            path: "AGENTS.md".to_string(),
             dest: None,
+            include: Vec::new(),
         }
     }
 
@@ -108,18 +111,28 @@ pub enum Source {
     /// Git repository source
     Git {
         /// Repository URL (SSH or HTTPS)
-        url: String,
+        #[serde(alias = "url")]
+        repo: String,
         /// Git ref (branch, tag, commit) - "auto" tries main then master
         #[serde(default = "default_ref")]
         r#ref: String,
         /// Whether to use shallow clone
         #[serde(default = "default_shallow")]
         shallow: bool,
+        /// Optional path within the repository
+        #[serde(default)]
+        path: Option<String>,
     },
     /// Local filesystem source
     Filesystem {
         /// Root directory for resolving paths
         root: String,
+        /// Whether to create symlinks instead of copying files (default: true)
+        #[serde(default = "default_symlink")]
+        symlink: bool,
+        /// Optional path within the root directory
+        #[serde(default)]
+        path: Option<String>,
     },
 }
 
@@ -131,12 +144,25 @@ fn default_shallow() -> bool {
     true
 }
 
+fn default_symlink() -> bool {
+    true
+}
+
 impl Source {
     /// Get a display name for the source
     pub fn display_name(&self) -> String {
         match self {
-            Source::Git { url, .. } => url.clone(),
-            Source::Filesystem { root } => format!("filesystem:{}", root),
+            Source::Git { repo, .. } => repo.clone(),
+            Source::Filesystem { root, .. } => format!("filesystem:{}", root),
+        }
+    }
+
+    /// Get the path within the source (defaults to "." if not specified)
+    pub fn path(&self) -> &str {
+        match self {
+            Source::Git { path, .. } | Source::Filesystem { path, .. } => {
+                path.as_deref().unwrap_or(".")
+            }
         }
     }
 }

@@ -34,6 +34,8 @@ struct ResolvedSource {
     source_display: String,
     /// Git-specific info (if applicable)
     git_info: Option<GitInfo>,
+    /// Whether to create symlinks instead of copying (filesystem sources only)
+    use_symlink: bool,
     /// Keep the temp dir alive for git sources
     #[allow(dead_code)]
     _temp_holder: Option<ResolvedGitSource>,
@@ -72,7 +74,7 @@ pub fn install_entry(
     info!("Processing entry: {}", entry.id);
 
     // Resolve source (handles both filesystem and git)
-    let resolved = resolve_source(&entry.source, &entry.path, manifest_dir)?;
+    let resolved = resolve_source(&entry.source, manifest_dir)?;
     debug!("Source path: {:?}", resolved.source_path);
 
     // Verify source exists
@@ -151,12 +153,21 @@ pub fn install_entry(
     }
 
     // Perform the install
-    if options.dry_run {
+    let symlinked_items = if options.dry_run {
         println!("[dry-run] Would install {} to {:?}", entry.id, dest_path);
+        if resolved.use_symlink {
+            println!("[dry-run] Would create symlink(s)");
+        }
+        Vec::new()
     } else {
-        install_asset(&entry.kind, &resolved.source_path, &dest_path)?;
-        println!("Installed {} to {:?}", entry.id, dest_path);
-    }
+        let items = install_asset(&entry.kind, &resolved.source_path, &dest_path, resolved.use_symlink, &entry.include)?;
+        if resolved.use_symlink {
+            println!("Symlinked {} to {:?}", entry.id, dest_path);
+        } else {
+            println!("Installed {} to {:?}", entry.id, dest_path);
+        }
+        items
+    };
 
     // Create locked entry based on source type
     let locked_entry = if let Some(git_info) = &resolved.git_info {
@@ -168,10 +179,20 @@ pub fn install_entry(
             checksum,
         )
     } else {
+        // Determine target path for symlinks
+        let target_path = if resolved.use_symlink {
+            Some(resolved.source_path.to_string_lossy().to_string())
+        } else {
+            None
+        };
+
         LockedEntry::new_filesystem(
             &resolved.source_display,
             &dest_path.to_string_lossy(),
             checksum,
+            resolved.use_symlink,
+            target_path,
+            symlinked_items,
         )
     };
 
@@ -186,30 +207,42 @@ pub fn install_entry(
 }
 
 /// Resolve the source and return path + metadata
-fn resolve_source(source: &Source, path: &str, manifest_dir: &Path) -> Result<ResolvedSource> {
+fn resolve_source(source: &Source, manifest_dir: &Path) -> Result<ResolvedSource> {
+    let path = source.path();
+
     match source {
-        Source::Filesystem { root } => {
+        Source::Filesystem { root, symlink, .. } => {
             let root_path = if Path::new(root).is_absolute() {
                 PathBuf::from(root)
             } else {
                 manifest_dir.join(root)
             };
-            let source_path = root_path.join(path);
+            // If path is ".", use root directly; otherwise join
+            let source_path = if path == "." {
+                root_path
+            } else {
+                root_path.join(path)
+            };
 
             Ok(ResolvedSource {
                 source_path,
                 source_display: source.display_name(),
                 git_info: None,
+                use_symlink: *symlink,
                 _temp_holder: None,
             })
         }
-        Source::Git { url, r#ref, shallow } => {
+        Source::Git { repo, r#ref, shallow, .. } => {
             // Clone the repository
-            println!("Fetching from git: {}", url);
-            let resolved = clone_and_resolve(url, r#ref, *shallow)?;
+            println!("Fetching from git: {}", repo);
+            let resolved = clone_and_resolve(repo, r#ref, *shallow)?;
 
             // Build the path within the cloned repo
-            let source_path = resolved.repo_path.join(path);
+            let source_path = if path == "." {
+                resolved.repo_path.clone()
+            } else {
+                resolved.repo_path.join(path)
+            };
 
             let git_info = GitInfo {
                 resolved_ref: resolved.resolved_ref.clone(),
@@ -220,6 +253,7 @@ fn resolve_source(source: &Source, path: &str, manifest_dir: &Path) -> Result<Re
                 source_path,
                 source_display: source.display_name(),
                 git_info: Some(git_info),
+                use_symlink: false, // Git sources always copy (temp dir)
                 _temp_holder: Some(resolved),
             })
         }
@@ -227,26 +261,168 @@ fn resolve_source(source: &Source, path: &str, manifest_dir: &Path) -> Result<Re
 }
 
 /// Install an asset based on its kind
-fn install_asset(kind: &AssetKind, source: &Path, dest: &Path) -> Result<()> {
-    match kind {
-        AssetKind::AgentsMd => {
-            // Single file copy
-            if let Some(parent) = dest.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| ApsError::io(e, "Failed to create destination directory"))?;
-                }
-            }
-            std::fs::copy(source, dest)
-                .map_err(|e| ApsError::io(e, format!("Failed to copy {:?} to {:?}", source, dest)))?;
-            debug!("Copied file {:?} to {:?}", source, dest);
-        }
-        AssetKind::CursorRules | AssetKind::CursorSkillsRoot => {
-            // Directory copy (Checkpoint 7-8)
-            // For now, basic directory copy
-            copy_directory(source, dest)?;
+fn install_asset(
+    kind: &AssetKind,
+    source: &Path,
+    dest: &Path,
+    use_symlink: bool,
+    include: &[String],
+) -> Result<Vec<String>> {
+    // Track symlinked items for lockfile
+    let mut symlinked_items = Vec::new();
+
+    // Ensure destination parent exists
+    if let Some(parent) = dest.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ApsError::io(e, "Failed to create destination directory"))?;
         }
     }
+
+    match kind {
+        AssetKind::AgentsMd => {
+            // Single file
+            if use_symlink {
+                create_symlink(source, dest)?;
+                symlinked_items.push(source.to_string_lossy().to_string());
+                debug!("Symlinked file {:?} to {:?}", source, dest);
+            } else {
+                std::fs::copy(source, dest)
+                    .map_err(|e| ApsError::io(e, format!("Failed to copy {:?} to {:?}", source, dest)))?;
+                debug!("Copied file {:?} to {:?}", source, dest);
+            }
+        }
+        AssetKind::CursorRules | AssetKind::CursorSkillsRoot => {
+            if use_symlink {
+                if include.is_empty() {
+                    // Symlink entire directory
+                    create_symlink(source, dest)?;
+                    symlinked_items.push(source.to_string_lossy().to_string());
+                    debug!("Symlinked directory {:?} to {:?}", source, dest);
+                } else {
+                    // Filter and symlink individual items
+                    let items = filter_by_prefix(source, include)?;
+
+                    // Ensure dest directory exists for individual symlinks
+                    if !dest.exists() {
+                        std::fs::create_dir_all(dest)
+                            .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dest)))?;
+                    }
+
+                    for item in items {
+                        let item_name = item.file_name()
+                            .ok_or_else(|| ApsError::io(
+                                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid filename"),
+                                format!("Failed to get filename from {:?}", item)
+                            ))?;
+                        let item_dest = dest.join(item_name);
+                        create_symlink(&item, &item_dest)?;
+                        symlinked_items.push(item.to_string_lossy().to_string());
+                        debug!("Symlinked {:?} to {:?}", item, item_dest);
+                    }
+                }
+            } else {
+                // Copy behavior
+                if include.is_empty() {
+                    copy_directory(source, dest)?;
+                } else {
+                    // Filter and copy individual items
+                    let items = filter_by_prefix(source, include)?;
+
+                    // Ensure dest exists
+                    if dest.exists() {
+                        std::fs::remove_dir_all(dest)
+                            .map_err(|e| ApsError::io(e, format!("Failed to remove existing directory {:?}", dest)))?;
+                    }
+                    std::fs::create_dir_all(dest)
+                        .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dest)))?;
+
+                    for item in items {
+                        let item_name = item.file_name()
+                            .ok_or_else(|| ApsError::io(
+                                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid filename"),
+                                format!("Failed to get filename from {:?}", item)
+                            ))?;
+                        let item_dest = dest.join(item_name);
+                        if item.is_dir() {
+                            copy_directory(&item, &item_dest)?;
+                        } else {
+                            std::fs::copy(&item, &item_dest)
+                                .map_err(|e| ApsError::io(e, format!("Failed to copy {:?}", item)))?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(symlinked_items)
+}
+
+/// Filter directory entries by prefix
+fn filter_by_prefix(source_dir: &Path, prefixes: &[String]) -> Result<Vec<PathBuf>> {
+    let mut matches = Vec::new();
+
+    for entry in std::fs::read_dir(source_dir)
+        .map_err(|e| ApsError::io(e, format!("Failed to read directory {:?}", source_dir)))?
+    {
+        let entry = entry.map_err(|e| ApsError::io(e, "Failed to read directory entry"))?;
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Check if name starts with any of the prefixes
+        for prefix in prefixes {
+            if name.starts_with(prefix) {
+                matches.push(entry.path());
+                break;
+            }
+        }
+    }
+
+    // Sort for deterministic behavior
+    matches.sort();
+    Ok(matches)
+}
+
+/// Create a symbolic link (platform-specific)
+#[cfg(unix)]
+fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
+    // Remove existing destination if present
+    if dest.exists() || dest.symlink_metadata().is_ok() {
+        if dest.is_dir() && !dest.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            std::fs::remove_dir_all(dest)
+                .map_err(|e| ApsError::io(e, format!("Failed to remove directory {:?}", dest)))?;
+        } else {
+            std::fs::remove_file(dest)
+                .map_err(|e| ApsError::io(e, format!("Failed to remove file {:?}", dest)))?;
+        }
+    }
+
+    std::os::unix::fs::symlink(source, dest)
+        .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
+    // Remove existing destination if present
+    if dest.exists() {
+        if dest.is_dir() {
+            std::fs::remove_dir_all(dest)
+                .map_err(|e| ApsError::io(e, format!("Failed to remove directory {:?}", dest)))?;
+        } else {
+            std::fs::remove_file(dest)
+                .map_err(|e| ApsError::io(e, format!("Failed to remove file {:?}", dest)))?;
+        }
+    }
+
+    if source.is_dir() {
+        std::os::windows::fs::symlink_dir(source, dest)
+            .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
+    } else {
+        std::os::windows::fs::symlink_file(source, dest)
+            .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
+    }
+
     Ok(())
 }
 

@@ -46,11 +46,30 @@ pub struct LockedEntry {
 
     /// Content checksum
     pub checksum: String,
+
+    /// Whether the destination is a symlink (filesystem sources only)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_symlink: bool,
+
+    /// Target path for symlinks (the source the symlink points to)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_path: Option<String>,
+
+    /// List of symlinked items (for filtered symlinks)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub symlinked_items: Vec<String>,
 }
 
 impl LockedEntry {
     /// Create a new locked entry for a filesystem source
-    pub fn new_filesystem(source: &str, dest: &str, checksum: String) -> Self {
+    pub fn new_filesystem(
+        source: &str,
+        dest: &str,
+        checksum: String,
+        is_symlink: bool,
+        target_path: Option<String>,
+        symlinked_items: Vec<String>,
+    ) -> Self {
         Self {
             source: source.to_string(),
             dest: dest.to_string(),
@@ -58,6 +77,9 @@ impl LockedEntry {
             commit: None,
             last_updated_at: Utc::now(),
             checksum,
+            is_symlink,
+            target_path,
+            symlinked_items,
         }
     }
 
@@ -77,6 +99,9 @@ impl LockedEntry {
             commit: Some(commit),
             last_updated_at: Utc::now(),
             checksum,
+            is_symlink: false,
+            target_path: None,
+            symlinked_items: Vec::new(),
         }
     }
 }
@@ -162,6 +187,15 @@ pub fn display_status(lockfile: &Lockfile) {
         }
         if let Some(ref commit) = entry.commit {
             println!("Commit:       {}", commit);
+        }
+        if entry.is_symlink {
+            println!("Type:         symlink");
+            if let Some(ref target) = entry.target_path {
+                println!("Target:       {}", target);
+            }
+            if !entry.symlinked_items.is_empty() {
+                println!("Items:        {} symlinked", entry.symlinked_items.len());
+            }
         }
         println!("Last updated: {}", entry.last_updated_at.format("%Y-%m-%d %H:%M:%S UTC"));
         println!("Checksum:     {}", entry.checksum);
