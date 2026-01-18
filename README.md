@@ -143,16 +143,27 @@ entries:
     dest: ./.cursor/rules/
 ```
 
-### Sync Claude agent skills from a shared repository
+### Sync Claude agent skills from the Anthropic skills repository
 
 ```yaml
 entries:
-  - id: team-claude-skills
+  - id: pdf-skill
     kind: agent_skill
     source:
-      type: filesystem
-      root: ../shared-assets
-    path: claude-skills
+      type: git
+      repo: git@github.com:anthropics/skills.git
+      ref: main
+      path: skills/pdf
+    dest: ./.claude/skills/pdf/
+
+  - id: memory-skill
+    kind: agent_skill
+    source:
+      type: git
+      repo: git@github.com:anthropics/skills.git
+      ref: main
+      path: skills/memory
+    dest: ./.claude/skills/memory/
 ```
 
 ### Non-interactive pull for CI/CD
