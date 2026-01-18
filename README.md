@@ -1,6 +1,6 @@
 # Agentic Prompt Sync (APS)
 
-A manifest-driven CLI tool for safely syncing agentic assets (Cursor rules, Cursor skills, and AGENTS.md files) from git or filesystem sources into your repository.
+A manifest-driven CLI tool for safely syncing agentic assets (Cursor rules, Cursor skills, Claude agent skills, and AGENTS.md files) from git or filesystem sources into your repository.
 
 ## Features
 
@@ -90,7 +90,7 @@ aps status
 ```yaml
 entries:
   - id: unique-identifier      # Required: unique ID for this entry
-    kind: agents_md            # Asset type: agents_md, cursor_rules, cursor_skills_root
+    kind: agents_md            # Asset type: agents_md, cursor_rules, cursor_skills_root, agent_skill
     source:
       type: filesystem         # Source type: filesystem or git
       root: ../shared-assets   # Root path for the source
@@ -105,6 +105,7 @@ entries:
 | `agents_md` | Single AGENTS.md file | `./AGENTS.md` |
 | `cursor_rules` | Directory of Cursor rules | `./.cursor/rules/` |
 | `cursor_skills_root` | Directory with skill subdirs | `./.cursor/skills/` |
+| `agent_skill` | Claude agent skill directory | `./.claude/skills/` |
 
 ### Lockfile (`.aps.lock`)
 
@@ -140,6 +141,18 @@ entries:
       root: ../company-standards
     path: cursor-rules
     dest: ./.cursor/rules/
+```
+
+### Sync Claude agent skills from a shared repository
+
+```yaml
+entries:
+  - id: team-claude-skills
+    kind: agent_skill
+    source:
+      type: filesystem
+      root: ../shared-assets
+    path: claude-skills
 ```
 
 ### Non-interactive pull for CI/CD
