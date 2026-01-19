@@ -8,10 +8,10 @@
 //! - agent_skill: One entry per skill folder
 
 use crate::error::{ApsError, Result};
-use crate::manifest::{AssetKind, Entry, Manifest, Source};
+use crate::manifest::{AssetKind, Entry, Manifest};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Default catalog filename
 pub const CATALOG_FILENAME: &str = "aps.catalog.yaml";
@@ -47,20 +47,15 @@ pub struct CatalogEntry {
     /// Unique identifier for this catalog entry (derived from manifest entry id + asset name)
     pub id: String,
 
-    /// The manifest entry ID this asset belongs to
-    pub manifest_entry_id: String,
-
     /// Human-readable name of the asset
     pub name: String,
 
-    /// The kind of asset
-    pub kind: AssetKind,
+    /// Destination path where this asset will be installed
+    pub destination: String,
 
-    /// Relative path from the source root to this asset
-    pub source_path: String,
-
-    /// Description of the source (repo URL or filesystem path)
-    pub source_description: String,
+    /// Short description extracted from the asset file (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_description: Option<String>,
 }
 
 impl Catalog {
@@ -138,7 +133,7 @@ fn enumerate_entry_assets(entry: &Entry, manifest_dir: &Path) -> Result<Vec<Cata
         });
     }
 
-    let source_description = get_source_description(&entry.source);
+    let base_dest = entry.destination();
     let mut catalog_entries = Vec::new();
 
     match entry.kind {
@@ -150,13 +145,13 @@ fn enumerate_entry_assets(entry: &Entry, manifest_dir: &Path) -> Result<Vec<Cata
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "AGENTS.md".to_string());
 
+            let short_description = extract_agents_md_description(&resolved.source_path);
+
             catalog_entries.push(CatalogEntry {
                 id: format!("{}:{}", entry.id, name),
-                manifest_entry_id: entry.id.clone(),
                 name,
-                kind: AssetKind::AgentsMd,
-                source_path: resolved.source_path.to_string_lossy().to_string(),
-                source_description: source_description.clone(),
+                destination: format!("./{}", base_dest.display()),
+                short_description,
             });
         }
         AssetKind::CursorRules => {
@@ -172,17 +167,18 @@ fn enumerate_entry_assets(entry: &Entry, manifest_dir: &Path) -> Result<Vec<Cata
                     continue;
                 }
 
+                let short_description = extract_cursor_rule_description(&file_path);
+                let dest_path = base_dest.join(&name);
+
                 catalog_entries.push(CatalogEntry {
                     id: format!("{}:{}", entry.id, name),
-                    manifest_entry_id: entry.id.clone(),
                     name,
-                    kind: AssetKind::CursorRules,
-                    source_path: file_path.to_string_lossy().to_string(),
-                    source_description: source_description.clone(),
+                    destination: format!("./{}", dest_path.display()),
+                    short_description,
                 });
             }
         }
-        AssetKind::CursorSkillsRoot | AssetKind::AgentSkill => {
+        AssetKind::CursorSkillsRoot => {
             // Enumerate each skill folder in the directory
             let folders = enumerate_folders(&resolved.source_path, &entry.include)?;
             for folder_path in folders {
@@ -195,19 +191,228 @@ fn enumerate_entry_assets(entry: &Entry, manifest_dir: &Path) -> Result<Vec<Cata
                     continue;
                 }
 
+                let short_description = extract_cursor_skill_description(&folder_path);
+                let dest_path = base_dest.join(&name);
+
                 catalog_entries.push(CatalogEntry {
                     id: format!("{}:{}", entry.id, name),
-                    manifest_entry_id: entry.id.clone(),
                     name,
-                    kind: entry.kind.clone(),
-                    source_path: folder_path.to_string_lossy().to_string(),
-                    source_description: source_description.clone(),
+                    destination: format!("./{}", dest_path.display()),
+                    short_description,
+                });
+            }
+        }
+        AssetKind::AgentSkill => {
+            // Enumerate each skill folder in the directory
+            let folders = enumerate_folders(&resolved.source_path, &entry.include)?;
+            for folder_path in folders {
+                let name = folder_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                if name.is_empty() {
+                    continue;
+                }
+
+                let short_description = extract_agent_skill_description(&folder_path);
+                let dest_path = base_dest.join(&name);
+
+                catalog_entries.push(CatalogEntry {
+                    id: format!("{}:{}", entry.id, name),
+                    name,
+                    destination: format!("./{}", dest_path.display()),
+                    short_description,
                 });
             }
         }
     }
 
     Ok(catalog_entries)
+}
+
+/// Extract a short description from an AGENTS.md file
+fn extract_agents_md_description(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    extract_first_paragraph(&content)
+}
+
+/// Extract a short description from a cursor rule file (.mdc)
+///
+/// Cursor rules may have YAML frontmatter with a `description` field,
+/// or we fall back to extracting the first meaningful line.
+fn extract_cursor_rule_description(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+
+    // Try to extract from YAML frontmatter first
+    if let Some(desc) = extract_frontmatter_description(&content) {
+        return Some(desc);
+    }
+
+    // Fall back to first paragraph after any frontmatter
+    let content_without_frontmatter = strip_frontmatter(&content);
+    extract_first_paragraph(&content_without_frontmatter)
+}
+
+/// Extract a short description from a cursor skill folder (SKILL.md)
+fn extract_cursor_skill_description(folder_path: &Path) -> Option<String> {
+    let skill_md = folder_path.join("SKILL.md");
+    if !skill_md.exists() {
+        warn!(
+            "No SKILL.md found in cursor skill folder: {:?}",
+            folder_path
+        );
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&skill_md).ok()?;
+
+    // Try frontmatter first, then first paragraph
+    if let Some(desc) = extract_frontmatter_description(&content) {
+        return Some(desc);
+    }
+
+    extract_first_paragraph(&content)
+}
+
+/// Extract a short description from an agent skill folder (SKILL.md or README.md)
+fn extract_agent_skill_description(folder_path: &Path) -> Option<String> {
+    // Try SKILL.md first
+    let skill_md = folder_path.join("SKILL.md");
+    if skill_md.exists() {
+        if let Ok(content) = std::fs::read_to_string(&skill_md) {
+            if let Some(desc) = extract_frontmatter_description(&content) {
+                return Some(desc);
+            }
+            if let Some(desc) = extract_first_paragraph(&content) {
+                return Some(desc);
+            }
+        }
+    }
+
+    // Fall back to README.md
+    let readme = folder_path.join("README.md");
+    if readme.exists() {
+        if let Ok(content) = std::fs::read_to_string(&readme) {
+            return extract_first_paragraph(&content);
+        }
+    }
+
+    None
+}
+
+/// Extract description from YAML frontmatter
+fn extract_frontmatter_description(content: &str) -> Option<String> {
+    // Check if content starts with frontmatter delimiter
+    if !content.starts_with("---") {
+        return None;
+    }
+
+    // Find the closing delimiter
+    let rest = &content[3..];
+    let end_pos = rest.find("\n---")?;
+    let frontmatter = &rest[..end_pos];
+
+    // Look for description field (simple parsing)
+    for line in frontmatter.lines() {
+        let line = line.trim();
+        if line.starts_with("description:") {
+            let desc = line.strip_prefix("description:")?.trim();
+            // Remove quotes if present
+            let desc = desc.trim_matches('"').trim_matches('\'');
+            if !desc.is_empty() {
+                return Some(desc.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Strip YAML frontmatter from content
+fn strip_frontmatter(content: &str) -> String {
+    if !content.starts_with("---") {
+        return content.to_string();
+    }
+
+    let rest = &content[3..];
+    if let Some(end_pos) = rest.find("\n---") {
+        // Skip past the closing delimiter and newline
+        let after_frontmatter = &rest[end_pos + 4..];
+        after_frontmatter.trim_start().to_string()
+    } else {
+        content.to_string()
+    }
+}
+
+/// Extract the first meaningful paragraph from markdown content
+fn extract_first_paragraph(content: &str) -> Option<String> {
+    let mut paragraph = String::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Skip empty lines at the start
+        if paragraph.is_empty() && trimmed.is_empty() {
+            continue;
+        }
+
+        // Skip headings
+        if trimmed.starts_with('#') {
+            if paragraph.is_empty() {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        // Skip code blocks
+        if trimmed.starts_with("```") {
+            if paragraph.is_empty() {
+                // Skip the entire code block
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        // Empty line ends the paragraph
+        if trimmed.is_empty() {
+            if !paragraph.is_empty() {
+                break;
+            }
+            continue;
+        }
+
+        // Add to paragraph
+        if !paragraph.is_empty() {
+            paragraph.push(' ');
+        }
+        paragraph.push_str(trimmed);
+    }
+
+    let paragraph = paragraph.trim().to_string();
+    if paragraph.is_empty() {
+        None
+    } else {
+        // Truncate if too long
+        Some(truncate_description(&paragraph, 200))
+    }
+}
+
+/// Truncate a description to a maximum length, adding ellipsis if needed
+fn truncate_description(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        let truncated = &s[..max_len - 3];
+        // Try to break at a word boundary
+        if let Some(last_space) = truncated.rfind(' ') {
+            format!("{}...", &truncated[..last_space])
+        } else {
+            format!("{}...", truncated)
+        }
+    }
 }
 
 /// Enumerate all files in a directory, optionally filtering by include prefixes
@@ -276,22 +481,6 @@ fn enumerate_folders(dir: &Path, include: &[String]) -> Result<Vec<PathBuf>> {
     Ok(folders)
 }
 
-/// Get a human-readable description of the source
-fn get_source_description(source: &Source) -> String {
-    match source {
-        Source::Git { repo, r#ref, .. } => {
-            format!("{} @ {}", repo, r#ref)
-        }
-        Source::Filesystem { root, path, .. } => {
-            if let Some(p) = path {
-                format!("{}/{}", root, p)
-            } else {
-                root.clone()
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +545,69 @@ mod tests {
         assert_eq!(folders.len(), 2);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_extract_frontmatter_description() {
+        let content = r#"---
+description: "This is a test rule"
+other: value
+---
+
+# Content here
+"#;
+        assert_eq!(
+            extract_frontmatter_description(content),
+            Some("This is a test rule".to_string())
+        );
+
+        // No frontmatter
+        let content = "# Just a heading\nSome content";
+        assert_eq!(extract_frontmatter_description(content), None);
+
+        // Frontmatter without description
+        let content = "---\ntitle: Test\n---\nContent";
+        assert_eq!(extract_frontmatter_description(content), None);
+    }
+
+    #[test]
+    fn test_extract_first_paragraph() {
+        let content = r#"# Heading
+
+This is the first paragraph that should be extracted.
+
+This is the second paragraph.
+"#;
+        assert_eq!(
+            extract_first_paragraph(content),
+            Some("This is the first paragraph that should be extracted.".to_string())
+        );
+
+        // Multi-line paragraph
+        let content = "First line\nsecond line\nthird line\n\nNew paragraph";
+        assert_eq!(
+            extract_first_paragraph(content),
+            Some("First line second line third line".to_string())
+        );
+    }
+
+    #[test]
+    fn test_strip_frontmatter() {
+        let content = "---\nkey: value\n---\n\nActual content";
+        assert_eq!(strip_frontmatter(content), "Actual content");
+
+        let content = "No frontmatter here";
+        assert_eq!(strip_frontmatter(content), "No frontmatter here");
+    }
+
+    #[test]
+    fn test_truncate_description() {
+        let short = "Short text";
+        assert_eq!(truncate_description(short, 100), "Short text");
+
+        let long = "This is a very long description that exceeds the maximum length";
+        let truncated = truncate_description(long, 30);
+        assert!(truncated.ends_with("..."));
+        assert!(truncated.len() <= 30);
     }
 }

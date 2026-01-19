@@ -388,34 +388,15 @@ pub fn cmd_catalog_generate(args: CatalogGenerateArgs) -> Result<()> {
         output_path
     );
 
-    // Print summary by kind
-    let mut agents_md_count = 0;
-    let mut cursor_rules_count = 0;
-    let mut cursor_skills_count = 0;
-    let mut agent_skill_count = 0;
+    // Count entries with descriptions
+    let with_desc = catalog
+        .entries
+        .iter()
+        .filter(|e| e.short_description.is_some())
+        .count();
 
-    for entry in &catalog.entries {
-        match entry.kind {
-            AssetKind::AgentsMd => agents_md_count += 1,
-            AssetKind::CursorRules => cursor_rules_count += 1,
-            AssetKind::CursorSkillsRoot => cursor_skills_count += 1,
-            AssetKind::AgentSkill => agent_skill_count += 1,
-        }
-    }
-
-    println!();
-    println!("Summary:");
-    if agents_md_count > 0 {
-        println!("  agents_md: {} file(s)", agents_md_count);
-    }
-    if cursor_rules_count > 0 {
-        println!("  cursor_rules: {} file(s)", cursor_rules_count);
-    }
-    if cursor_skills_count > 0 {
-        println!("  cursor_skills_root: {} folder(s)", cursor_skills_count);
-    }
-    if agent_skill_count > 0 {
-        println!("  agent_skill: {} folder(s)", agent_skill_count);
+    if with_desc > 0 {
+        println!("  {} entries have descriptions", with_desc);
     }
 
     Ok(())
