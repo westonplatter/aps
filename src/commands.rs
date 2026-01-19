@@ -2,7 +2,7 @@ use crate::cli::{InitArgs, ManifestFormat, PullArgs, StatusArgs, ValidateArgs};
 use crate::error::{ApsError, Result};
 use crate::git::clone_and_resolve;
 use crate::install::{install_entry, InstallOptions, InstallResult};
-use crate::lockfile::{display_status, Lockfile, LOCKFILE_NAME};
+use crate::lockfile::{display_status, Lockfile};
 use crate::manifest::{
     discover_manifest, manifest_dir, validate_manifest, AssetKind, Manifest, DEFAULT_MANIFEST_NAME,
 };
@@ -57,21 +57,19 @@ pub fn cmd_init(args: InitArgs) -> Result<()> {
     Ok(())
 }
 
-/// Update .gitignore to include the lockfile
+/// Update .gitignore to include the backup directory
 fn update_gitignore(manifest_path: &Path) -> Result<()> {
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
 
     let gitignore_path = manifest_dir.join(".gitignore");
-    let lockfile_entry = LOCKFILE_NAME;
     let backup_entry = ".aps-backups/";
 
     // Read existing .gitignore or start with empty
     let existing = fs::read_to_string(&gitignore_path).unwrap_or_default();
 
-    let needs_lockfile = !existing.lines().any(|line| line.trim() == lockfile_entry);
     let needs_backup = !existing.lines().any(|line| line.trim() == backup_entry);
 
-    if !needs_lockfile && !needs_backup {
+    if !needs_backup {
         info!(".gitignore already contains required entries");
         return Ok(());
     }
@@ -88,23 +86,13 @@ fn update_gitignore(manifest_path: &Path) -> Result<()> {
         writeln!(file).map_err(|e| ApsError::io(e, "Failed to write to .gitignore"))?;
     }
 
-    // Add comment and entries
-    if needs_lockfile || needs_backup {
-        writeln!(file, "\n# APS (Agentic Prompt Sync)")
-            .map_err(|e| ApsError::io(e, "Failed to write to .gitignore"))?;
-    }
+    // Add comment and entry
+    writeln!(file, "\n# APS (Agentic Prompt Sync)")
+        .map_err(|e| ApsError::io(e, "Failed to write to .gitignore"))?;
 
-    if needs_lockfile {
-        writeln!(file, "{}", lockfile_entry)
-            .map_err(|e| ApsError::io(e, "Failed to write to .gitignore"))?;
-        println!("Added {} to .gitignore", lockfile_entry);
-    }
-
-    if needs_backup {
-        writeln!(file, "{}", backup_entry)
-            .map_err(|e| ApsError::io(e, "Failed to write to .gitignore"))?;
-        println!("Added {} to .gitignore", backup_entry);
-    }
+    writeln!(file, "{}", backup_entry)
+        .map_err(|e| ApsError::io(e, "Failed to write to .gitignore"))?;
+    println!("Added {} to .gitignore", backup_entry);
 
     Ok(())
 }

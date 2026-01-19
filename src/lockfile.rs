@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// Default lockfile filename
-pub const LOCKFILE_NAME: &str = ".aps.lock";
+pub const LOCKFILE_NAME: &str = "aps.manifest.lock";
 
 /// The lockfile structure
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

@@ -153,9 +153,9 @@ entries:
 
 **Shell Variable Expansion**: Path values in `root` and `path` fields support shell variable expansion (e.g., `$HOME`, `$USER`). This makes manifests portable across different machines and users.
 
-### Lockfile (`.aps.lock`)
+### Lockfile (`aps.manifest.lock`)
 
-The lockfile tracks installed assets and is automatically created/updated by `aps pull`. It stores:
+The lockfile tracks installed assets and is automatically created/updated by `aps pull`. **This file should be committed to version control** to ensure reproducible installations across your team. It stores:
 
 - Source information
 - Destination paths
