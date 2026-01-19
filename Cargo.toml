@@ -18,6 +18,9 @@ clap = { version = "4", features = ["derive"] }
 # Interactive prompts
 dialoguer = "0.11"
 
+# Terminal styling
+console = "0.15"
+
 # Errors & diagnostics
 miette = { version = "7", features = ["fancy"] }
 thiserror = "1"

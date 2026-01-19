@@ -6,6 +6,7 @@ use crate::lockfile::{display_status, Lockfile};
 use crate::manifest::{
     discover_manifest, manifest_dir, validate_manifest, AssetKind, Manifest, DEFAULT_MANIFEST_NAME,
 };
+use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -147,12 +148,22 @@ pub fn cmd_pull(args: PullArgs) -> Result<()> {
         strict: args.strict,
     };
 
+    // Detect orphaned paths (destinations that changed)
+    let orphans = detect_orphaned_paths(&entries_to_install, &lockfile, &base_dir);
+
     // Install selected entries
     let mut results: Vec<InstallResult> = Vec::new();
-    for entry in entries_to_install {
+    for entry in &entries_to_install {
         let result = install_entry(entry, &base_dir, &lockfile, &options)?;
         results.push(result);
     }
+
+    // Cleanup orphaned paths after successful install
+    let orphan_count = if !orphans.is_empty() {
+        prompt_and_cleanup_orphans(&orphans, &options, &base_dir)?
+    } else {
+        0
+    };
 
     // Update lockfile with results
     if !args.dry_run {
@@ -183,6 +194,10 @@ pub fn cmd_pull(args: PullArgs) -> Result<()> {
             "Installed {} entries, {} already up to date",
             installed_count, skipped_count
         );
+    }
+
+    if orphan_count > 0 {
+        println!("Cleaned up {} orphaned path(s)", orphan_count);
     }
 
     if warning_count > 0 {
