@@ -46,7 +46,7 @@ entries:
     kind: agents_md
     source:
       type: filesystem
-      root: /Users/my-username
+      root: $HOME
       path: personal-generic-AGENTS.md
     dest: ./AGENTS.md
 ```
@@ -93,7 +93,7 @@ entries:
     kind: agents_md
     source:
       type: filesystem
-      root: /Users/my-username
+      root: $HOME
       path: AGENTS-generic.md
     dest: AGENTS.md
 
@@ -110,7 +110,7 @@ entries:
     kind: cursor_rules
     source:
       type: filesystem
-      root: /Users/my-username/work/acme-corp/internal-prompts
+      root: $HOME/work/acme-corp/internal-prompts
       path: rules
     dest: ./.cursor/rules/
 
@@ -118,7 +118,7 @@ entries:
     kind: cursor_rules
     source:
       type: filesystem
-      root: /Users/my-username/work/acme-corp/internal-prompts
+      root: $HOME/work/acme-corp/internal-prompts
       path: dumping-ground
     dest: ./.cursor/rules/
 
@@ -150,6 +150,8 @@ entries:
 | ------------ | --------------------------- | -------------------------------- |
 | `filesystem` | Pull from a local directory | `root`, `path`, `symlink`        |
 | `git`        | Pull from a git repository  | `repo`, `ref`, `path`, `shallow` |
+
+**Shell Variable Expansion**: Path values in `root` and `path` fields support shell variable expansion (e.g., `$HOME`, `$USER`). This makes manifests portable across different machines and users.
 
 ### Lockfile (`.aps.lock`)
 
