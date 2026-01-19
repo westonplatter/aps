@@ -11,7 +11,9 @@ mod manifest;
 
 use clap::Parser;
 use cli::{Cli, Commands};
-use commands::{cmd_catalog, cmd_init, cmd_pull, cmd_status, cmd_suggest, cmd_validate};
+use commands::{
+    cmd_catalog, cmd_context, cmd_init, cmd_pull, cmd_status, cmd_suggest, cmd_validate,
+};
 use miette::Result;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -44,6 +46,7 @@ fn main() -> Result<()> {
         Commands::Status(args) => cmd_status(args),
         Commands::Suggest(args) => cmd_suggest(args),
         Commands::Catalog(args) => cmd_catalog(args),
+        Commands::Context(args) => cmd_context(args),
     };
 
     // Convert our error type to miette for nice display

@@ -38,6 +38,9 @@ pub enum Commands {
 
     /// Manage the asset catalog
     Catalog(CatalogArgs),
+
+    /// Analyze current context and suggest relevant assets (for hooks/automation)
+    Context(ContextArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -249,4 +252,37 @@ pub enum OutputFormat {
     Pretty,
     Json,
     Yaml,
+    /// Machine-readable format optimized for MCP/tool integration
+    Mcp,
+}
+
+#[derive(Parser, Debug)]
+pub struct ContextArgs {
+    /// Additional context or task description
+    #[arg(long, short = 'm')]
+    pub message: Option<String>,
+
+    /// Path to analyze (defaults to current directory)
+    #[arg(long)]
+    pub path: Option<PathBuf>,
+
+    /// Path to the catalog file
+    #[arg(long)]
+    pub catalog: Option<PathBuf>,
+
+    /// Maximum number of suggestions
+    #[arg(long, short = 'n', default_value = "3")]
+    pub limit: usize,
+
+    /// Output format (use 'mcp' for tool integration)
+    #[arg(long, value_enum, default_value = "mcp")]
+    pub format: OutputFormat,
+
+    /// Auto-apply suggestions without prompting (for hooks)
+    #[arg(long)]
+    pub auto_apply: bool,
+
+    /// Only output if confidence is above this threshold (0.0-1.0)
+    #[arg(long, default_value = "0.3")]
+    pub threshold: f64,
 }

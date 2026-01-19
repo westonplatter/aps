@@ -103,6 +103,7 @@ aps status
 | `aps status`   | Display last pull information from lockfile           |
 | `aps suggest`  | **Intelligently suggest assets based on your task**   |
 | `aps catalog`  | Manage and browse the asset catalog                   |
+| `aps context`  | **Auto-detect project context and suggest assets**    |
 
 ### Common Options
 
@@ -132,6 +133,15 @@ aps status
 | `aps catalog info`  | Show detailed information about an asset |
 | `aps catalog init`  | Initialize a new catalog file            |
 | `aps catalog add`   | Add a new asset to the catalog           |
+
+### Context Options (for automation/hooks)
+
+- `--message <text>` - Additional task description
+- `--path <dir>` - Directory to analyze (default: current)
+- `--limit <n>` - Maximum suggestions (default: 3)
+- `--format <format>` - Output format: `mcp` (default), `pretty`, `json`, `yaml`
+- `--auto-apply` - Automatically add suggestions to manifest
+- `--threshold <0.0-1.0>` - Minimum confidence to include (default: 0.3)
 
 ## Configuration
 
@@ -303,6 +313,138 @@ aps pull --yes
 
 ```bash
 aps validate --strict
+```
+
+## Integration with Agentic Tools
+
+APS is designed to integrate with AI coding assistants like Claude Code and Cursor. The key integration point is the `aps context` command, which provides machine-readable output for automation.
+
+### Context-Aware Auto-Suggestion
+
+The `context` command analyzes your project and suggests relevant assets:
+
+```bash
+# Analyze current directory and get suggestions (MCP format by default)
+aps context
+
+# Output:
+# {"suggestions":[{"id":"rust-best-practices","name":"Rust Best Practices","confidence":0.95,...}],"context":{"technologies":["rust"],...}}
+
+# Add a task description for more targeted suggestions
+aps context --message "I need to review this PR for security issues"
+
+# Auto-apply suggestions (for hooks)
+aps context --auto-apply --threshold 0.8
+```
+
+### Claude Code Integration
+
+#### Using with Claude Code Hooks
+
+Create a pre-task hook that suggests relevant assets:
+
+```yaml
+# .claude/hooks.yaml (proposed format)
+hooks:
+  pre_task:
+    - name: suggest-assets
+      command: aps context --format mcp
+      on_result: suggest_to_user
+```
+
+#### As an MCP Tool
+
+APS can be exposed as an MCP tool that Claude Code can call:
+
+```json
+{
+  "name": "suggest_assets",
+  "description": "Suggest relevant prompts, rules, and skills based on the current task",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "task_description": {"type": "string"}
+    }
+  }
+}
+```
+
+The agent would call:
+```bash
+aps suggest --format mcp "implement authentication with JWT"
+```
+
+### Cursor Integration
+
+#### Dynamic Rule Loading
+
+Instead of loading all rules statically, use APS to load rules based on context:
+
+```bash
+# In your project setup script or Cursor task
+aps context --auto-apply
+aps pull
+```
+
+#### Workspace Rules
+
+Configure Cursor to use APS-managed rules:
+
+```json
+// .cursor/settings.json
+{
+  "rules": {
+    "source": ".cursor/rules/",
+    "refresh_command": "aps context --auto-apply && aps pull"
+  }
+}
+```
+
+### MCP Output Format
+
+The `--format mcp` output is designed for tool consumption:
+
+```json
+{
+  "suggestions": [
+    {
+      "id": "code-review-security",
+      "name": "Security-Focused Code Review",
+      "kind": "CursorRules",
+      "category": "security",
+      "confidence": 0.95,
+      "reason": "Matched: tagged with 'security' and 2 more",
+      "action": "aps pull --only code-review-security"
+    }
+  ],
+  "context": {
+    "technologies": ["rust", "typescript"],
+    "frameworks": ["react"],
+    "task_hints": ["testing"],
+    "query": "rust typescript react testing"
+  }
+}
+```
+
+### Automation Patterns
+
+#### Pre-commit Hook
+
+```bash
+#!/bin/bash
+# .git/hooks/pre-commit
+aps context --format mcp | jq -e '.suggestions | length > 0' && \
+  echo "APS suggests additional rules for this commit type"
+```
+
+#### CI/CD Integration
+
+```yaml
+# .github/workflows/pr-review.yml
+- name: Suggest review rules
+  run: |
+    SUGGESTIONS=$(aps suggest --format json "PR review for ${{ github.event.pull_request.title }}")
+    echo "Suggested assets: $SUGGESTIONS"
 ```
 
 ## Development

@@ -4,8 +4,8 @@ use crate::catalog::{
 };
 use crate::cli::{
     CatalogAddArgs, CatalogArgs, CatalogCommands, CatalogInfoArgs, CatalogInitArgs,
-    CatalogListArgs, CatalogSearchArgs, InitArgs, ManifestFormat, OutputFormat, PullArgs,
-    StatusArgs, SuggestArgs, ValidateArgs,
+    CatalogListArgs, CatalogSearchArgs, ContextArgs, InitArgs, ManifestFormat, OutputFormat,
+    PullArgs, StatusArgs, SuggestArgs, ValidateArgs,
 };
 use crate::error::{ApsError, Result};
 use crate::git::clone_and_resolve;
@@ -15,10 +15,11 @@ use crate::manifest::{
     discover_manifest, manifest_dir, validate_manifest, AssetKind, Manifest, Source,
     DEFAULT_MANIFEST_NAME,
 };
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Execute the `aps init` command
 pub fn cmd_init(args: InitArgs) -> Result<()> {
@@ -484,6 +485,29 @@ pub fn cmd_suggest(args: SuggestArgs) -> Result<()> {
                 println!("{}", output);
             }
         }
+        OutputFormat::Mcp => {
+            // MCP-compatible output for tool integration
+            let max_score = results[0].entry.score;
+            let suggestions: Vec<_> = results
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.entry.id,
+                        "name": r.entry.name,
+                        "kind": format!("{:?}", r.entry.kind),
+                        "category": r.entry.category,
+                        "confidence": r.entry.score / max_score,
+                        "reason": r.match_reason,
+                        "action": format!("aps pull --only {}", r.entry.id),
+                    })
+                })
+                .collect();
+            let output = serde_json::json!({
+                "query": query,
+                "suggestions": suggestions,
+            });
+            println!("{}", serde_json::to_string(&output).unwrap());
+        }
     }
 
     // Add top suggestion to manifest if requested
@@ -627,6 +651,26 @@ fn cmd_catalog_list(args: CatalogListArgs) -> Result<()> {
                 println!("{}", serde_yaml::to_string(asset).unwrap());
             }
         }
+        OutputFormat::Mcp => {
+            // Same as JSON for list
+            let output: Vec<_> = assets
+                .iter()
+                .map(|a| {
+                    serde_json::json!({
+                        "id": a.id,
+                        "name": a.name,
+                        "category": a.category,
+                        "kind": format!("{:?}", a.kind),
+                        "tags": a.tags,
+                    })
+                })
+                .collect();
+            let result = serde_json::json!({
+                "assets": output,
+                "count": assets.len(),
+            });
+            println!("{}", serde_json::to_string(&result).unwrap());
+        }
     }
 
     Ok(())
@@ -683,6 +727,25 @@ fn cmd_catalog_search(args: CatalogSearchArgs) -> Result<()> {
                 println!("score: {:.2}", result.entry.score);
                 println!("match_reason: {}", result.match_reason);
             }
+        }
+        OutputFormat::Mcp => {
+            let max_score = results.first().map(|r| r.entry.score).unwrap_or(1.0);
+            let output: Vec<_> = results
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.entry.id,
+                        "name": r.entry.name,
+                        "confidence": r.entry.score / max_score,
+                        "reason": r.match_reason,
+                    })
+                })
+                .collect();
+            let result = serde_json::json!({
+                "query": query,
+                "results": output,
+            });
+            println!("{}", serde_json::to_string(&result).unwrap());
         }
     }
 
@@ -860,4 +923,363 @@ fn cmd_catalog_add(args: CatalogAddArgs) -> Result<()> {
     println!("Edit the catalog file to add source, use_cases, triggers, and other metadata.");
 
     Ok(())
+}
+
+// ============================================================================
+// Context Command - Automated Context-Aware Suggestions
+// ============================================================================
+
+/// Execute the `aps context` command - for hooks and automation
+///
+/// This command analyzes the current project context (file types, frameworks,
+/// existing rules) and suggests relevant assets. It's designed to be called
+/// by hooks or MCP tools.
+pub fn cmd_context(args: ContextArgs) -> Result<()> {
+    let base_path = args
+        .path
+        .unwrap_or_else(|| std::env::current_dir().unwrap());
+
+    debug!("Analyzing context at {:?}", base_path);
+
+    // Analyze project context
+    let context = analyze_project_context(&base_path);
+    debug!("Detected context: {:?}", context);
+
+    // Build query from context + optional message
+    let mut query_parts: Vec<String> = Vec::new();
+
+    // Add detected technologies/frameworks
+    query_parts.extend(context.technologies.iter().cloned());
+    query_parts.extend(context.frameworks.iter().cloned());
+
+    // Add task type hints
+    query_parts.extend(context.task_hints.iter().cloned());
+
+    // Add user-provided message if any
+    if let Some(ref msg) = args.message {
+        query_parts.push(msg.clone());
+    }
+
+    let query = query_parts.join(" ");
+
+    if query.is_empty() {
+        // No context detected, output empty result
+        match args.format {
+            OutputFormat::Mcp => {
+                let output = serde_json::json!({
+                    "suggestions": [],
+                    "context": {
+                        "technologies": context.technologies,
+                        "frameworks": context.frameworks,
+                        "task_hints": context.task_hints,
+                    },
+                    "message": "No context detected. Provide --message for task-specific suggestions."
+                });
+                println!("{}", serde_json::to_string(&output).unwrap());
+            }
+            _ => {
+                println!("No context detected. Use --message to describe your task.");
+            }
+        }
+        return Ok(());
+    }
+
+    // Load catalog and search
+    let catalog_result = discover_catalog(args.catalog.as_deref());
+    let (catalog, _) = match catalog_result {
+        Ok(c) => c,
+        Err(_) => {
+            // No catalog found - output appropriate response
+            match args.format {
+                OutputFormat::Mcp => {
+                    let output = serde_json::json!({
+                        "suggestions": [],
+                        "context": {
+                            "technologies": context.technologies,
+                            "frameworks": context.frameworks,
+                            "task_hints": context.task_hints,
+                        },
+                        "error": "No catalog found. Create one with `aps catalog init`"
+                    });
+                    println!("{}", serde_json::to_string(&output).unwrap());
+                }
+                _ => {
+                    eprintln!("No catalog found. Create one with `aps catalog init`");
+                }
+            }
+            return Ok(());
+        }
+    };
+
+    let search = CatalogSearch::new(catalog);
+    let results = search.search(&query, args.limit);
+
+    // Filter by threshold
+    let max_score = results.first().map(|r| r.entry.score).unwrap_or(0.0);
+    let filtered_results: Vec<_> = if max_score > 0.0 {
+        results
+            .into_iter()
+            .filter(|r| (r.entry.score / max_score) >= args.threshold)
+            .collect()
+    } else {
+        vec![]
+    };
+
+    match args.format {
+        OutputFormat::Mcp => {
+            // MCP-compatible output for tool integration
+            let suggestions: Vec<_> = filtered_results
+                .iter()
+                .map(|r| {
+                    let confidence = if max_score > 0.0 {
+                        r.entry.score / max_score
+                    } else {
+                        0.0
+                    };
+                    serde_json::json!({
+                        "id": r.entry.id,
+                        "name": r.entry.name,
+                        "kind": format!("{:?}", r.entry.kind),
+                        "category": r.entry.category,
+                        "confidence": confidence,
+                        "reason": r.match_reason,
+                        "action": format!("aps pull --only {}", r.entry.id),
+                    })
+                })
+                .collect();
+
+            let output = serde_json::json!({
+                "suggestions": suggestions,
+                "context": {
+                    "technologies": context.technologies,
+                    "frameworks": context.frameworks,
+                    "task_hints": context.task_hints,
+                    "query": query,
+                },
+                "auto_apply": args.auto_apply,
+            });
+            println!("{}", serde_json::to_string(&output).unwrap());
+        }
+        OutputFormat::Json => {
+            let output: Vec<_> = filtered_results
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.entry.id,
+                        "name": r.entry.name,
+                        "score": r.entry.score,
+                        "reason": r.match_reason,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        }
+        OutputFormat::Pretty => {
+            if filtered_results.is_empty() {
+                println!("No relevant assets found for current context.");
+            } else {
+                println!("Context-aware suggestions:\n");
+                println!("  Detected: {}", query);
+                println!();
+                for (i, result) in filtered_results.iter().enumerate() {
+                    let confidence = if max_score > 0.0 {
+                        (result.entry.score / max_score) * 100.0
+                    } else {
+                        0.0
+                    };
+                    println!(
+                        "  {}. {} [{:.0}%]",
+                        i + 1,
+                        result.entry.name,
+                        confidence
+                    );
+                    println!("     {}", result.match_reason);
+                }
+            }
+        }
+        OutputFormat::Yaml => {
+            for result in &filtered_results {
+                println!("---");
+                println!("{}", serde_yaml::to_string(&result.entry).unwrap());
+            }
+        }
+    }
+
+    // Auto-apply if requested
+    if args.auto_apply && !filtered_results.is_empty() {
+        info!("Auto-applying top suggestion...");
+
+        // Find or create manifest
+        let manifest_result = discover_manifest(None);
+        let (mut manifest, manifest_path) = match manifest_result {
+            Ok((m, p)) => (m, p),
+            Err(ApsError::ManifestNotFound) => {
+                let path = std::env::current_dir()
+                    .unwrap()
+                    .join(DEFAULT_MANIFEST_NAME);
+                (Manifest { entries: vec![] }, path)
+            }
+            Err(e) => return Err(e),
+        };
+
+        let mut added = Vec::new();
+        for result in &filtered_results {
+            if !manifest.entries.iter().any(|e| e.id == result.entry.id) {
+                manifest.entries.push(result.entry.to_manifest_entry());
+                added.push(result.entry.id.clone());
+            }
+        }
+
+        if !added.is_empty() {
+            let content = serde_yaml::to_string(&manifest).unwrap();
+            fs::write(&manifest_path, content).map_err(|e| {
+                ApsError::io(e, format!("Failed to write manifest to {:?}", manifest_path))
+            })?;
+
+            if matches!(args.format, OutputFormat::Pretty) {
+                println!("\nAuto-applied: {}", added.join(", "));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Detected project context
+#[derive(Debug, Default)]
+struct ProjectContext {
+    technologies: Vec<String>,
+    frameworks: Vec<String>,
+    task_hints: Vec<String>,
+}
+
+/// Analyze project directory to detect technologies and frameworks
+fn analyze_project_context(path: &Path) -> ProjectContext {
+    let mut context = ProjectContext::default();
+    let mut seen_techs: HashSet<String> = HashSet::new();
+
+    // Check for common project files
+    let indicators = [
+        // Rust
+        ("Cargo.toml", "rust"),
+        ("Cargo.lock", "rust"),
+        // JavaScript/TypeScript
+        ("package.json", "javascript"),
+        ("tsconfig.json", "typescript"),
+        ("yarn.lock", "javascript"),
+        ("pnpm-lock.yaml", "javascript"),
+        // Python
+        ("pyproject.toml", "python"),
+        ("requirements.txt", "python"),
+        ("setup.py", "python"),
+        ("Pipfile", "python"),
+        // Go
+        ("go.mod", "go"),
+        ("go.sum", "go"),
+        // Ruby
+        ("Gemfile", "ruby"),
+        ("Gemfile.lock", "ruby"),
+        // Java/Kotlin
+        ("pom.xml", "java"),
+        ("build.gradle", "java"),
+        ("build.gradle.kts", "kotlin"),
+        // C/C++
+        ("CMakeLists.txt", "cpp"),
+        ("Makefile", "c"),
+        // Docker
+        ("Dockerfile", "docker"),
+        ("docker-compose.yml", "docker"),
+        ("docker-compose.yaml", "docker"),
+        // Terraform
+        ("main.tf", "terraform"),
+        ("terraform.tf", "terraform"),
+    ];
+
+    for (file, tech) in indicators {
+        if path.join(file).exists() && !seen_techs.contains(tech) {
+            context.technologies.push(tech.to_string());
+            seen_techs.insert(tech.to_string());
+        }
+    }
+
+    // Check for framework-specific files
+    let framework_indicators = [
+        // React
+        ("src/App.tsx", "react"),
+        ("src/App.jsx", "react"),
+        ("next.config.js", "nextjs"),
+        ("next.config.mjs", "nextjs"),
+        // Vue
+        ("vue.config.js", "vue"),
+        ("nuxt.config.js", "nuxt"),
+        // Angular
+        ("angular.json", "angular"),
+        // Django
+        ("manage.py", "django"),
+        // Flask
+        ("app.py", "flask"),
+        // Rails
+        ("config/routes.rb", "rails"),
+        // FastAPI
+        ("main.py", "fastapi"),
+        // Express
+        ("server.js", "express"),
+        ("app.js", "express"),
+    ];
+
+    for (file, framework) in framework_indicators {
+        if path.join(file).exists() {
+            context.frameworks.push(framework.to_string());
+        }
+    }
+
+    // Check package.json for more framework hints
+    let package_json = path.join("package.json");
+    if package_json.exists() {
+        if let Ok(content) = fs::read_to_string(&package_json) {
+            if content.contains("\"react\"") {
+                context.frameworks.push("react".to_string());
+            }
+            if content.contains("\"vue\"") {
+                context.frameworks.push("vue".to_string());
+            }
+            if content.contains("\"@angular/core\"") {
+                context.frameworks.push("angular".to_string());
+            }
+            if content.contains("\"jest\"") || content.contains("\"vitest\"") {
+                context.task_hints.push("testing".to_string());
+            }
+            if content.contains("\"eslint\"") {
+                context.task_hints.push("linting".to_string());
+            }
+        }
+    }
+
+    // Check pyproject.toml for Python frameworks
+    let pyproject = path.join("pyproject.toml");
+    if pyproject.exists() {
+        if let Ok(content) = fs::read_to_string(&pyproject) {
+            if content.contains("fastapi") {
+                context.frameworks.push("fastapi".to_string());
+            }
+            if content.contains("django") {
+                context.frameworks.push("django".to_string());
+            }
+            if content.contains("flask") {
+                context.frameworks.push("flask".to_string());
+            }
+            if content.contains("pandas") || content.contains("numpy") {
+                context.task_hints.push("data science".to_string());
+            }
+            if content.contains("pytest") {
+                context.task_hints.push("testing".to_string());
+            }
+        }
+    }
+
+    // Deduplicate frameworks
+    let unique_frameworks: HashSet<String> = context.frameworks.drain(..).collect();
+    context.frameworks = unique_frameworks.into_iter().collect();
+
+    context
 }
