@@ -27,13 +27,13 @@ APS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/west
 
 Pre-built binaries for all platforms are available on the [Releases page](https://github.com/westonplatter/agentic-prompt-sync/releases).
 
-| Platform     | Download |
-|--------------|----------|
-| Linux x64    | `aps-linux-x64-musl.tar.gz` |
-| Linux ARM64  | `aps-linux-arm64.tar.gz` |
-| macOS Intel  | `aps-macos-x64.tar.gz` |
-| macOS ARM    | `aps-macos-arm64.tar.gz` |
-| Windows x64  | `aps-windows-x64.zip` |
+| Platform    | Download                    |
+| ----------- | --------------------------- |
+| Linux x64   | `aps-linux-x64-musl.tar.gz` |
+| Linux ARM64 | `aps-linux-arm64.tar.gz`    |
+| macOS Intel | `aps-macos-x64.tar.gz`      |
+| macOS ARM   | `aps-macos-arm64.tar.gz`    |
+| Windows x64 | `aps-windows-x64.zip`       |
 
 ### Cargo Install
 

@@ -11,23 +11,24 @@ This spec describes an intelligent suggestion system that recommends prompts, ru
 **Catalog Entry** - Metadata layer on top of manifest entries:
 
 ```yaml
-- id: fastapi-auth          # Links to manifest entry
+- id: fastapi-auth # Links to manifest entry
   name: FastAPI Authentication Patterns
   description: JWT and OAuth2 patterns for FastAPI
   kind: cursor_rules
-  category: security        # One of: language, framework, security, testing, api-design, etc.
+  category: security # One of: language, framework, security, testing, api-design, etc.
   tags: [fastapi, jwt, oauth2]
   keywords: [authentication, bearer, token, login]
   use_cases:
     - Adding user authentication to REST APIs
     - Implementing role-based access control
-  triggers:                 # Natural language phrases
+  triggers: # Natural language phrases
     - "add authentication to my API"
     - "implement JWT tokens"
-  source: {copied from manifest}
+  source: { copied from manifest }
 ```
 
 **Why these fields?**
+
 - `triggers`: Written as phrases humans say, weighted highest in search
 - `keywords`: Technical terms for exact matching
 - `tags`/`category`: Filtering and grouping
@@ -37,14 +38,15 @@ This spec describes an intelligent suggestion system that recommends prompts, ru
 
 **Inverted Index** - Built at load time for O(1) lookups:
 
-```
+```text
 "jwt"    → [(entry_1, triggers, 2.5), (entry_3, keywords, 2.0)]
 "fastapi" → [(entry_1, triggers, 2.5), (entry_2, tags, 2.0)]
 ```
 
 **Field Weights:**
+
 | Field       | Weight | Rationale                          |
-|-------------|--------|------------------------------------|
+| ----------- | ------ | ---------------------------------- |
 | name        | 3.0    | Exact name matches are intentional |
 | triggers    | 2.5    | Natural language task descriptions |
 | tags        | 2.0    | Curated relevance signals          |
@@ -54,7 +56,8 @@ This spec describes an intelligent suggestion system that recommends prompts, ru
 | description | 1.0    | General content, lowest signal     |
 
 **Scoring (TF-IDF style):**
-```
+
+```text
 score(entry, query) = Σ term_frequency(t) × field_weight(f) × idf(t)
 
 where idf(t) = log(total_entries / entries_containing_t)
@@ -63,6 +66,7 @@ where idf(t) = log(total_entries / entries_containing_t)
 Rare terms score higher. A match on "JWT" (few entries) beats a match on "API" (many entries).
 
 **Tokenization:**
+
 1. Lowercase and split on non-alphanumeric
 2. Remove stop words (the, a, to, for, etc.)
 3. Apply simple stemming (authentication → authent)
@@ -92,12 +96,14 @@ aps context --format mcp
 ### Integration Points
 
 **Claude Code Hooks:**
+
 ```bash
 # .claude/hooks/on-session-start.sh
 aps context --format mcp --auto-apply
 ```
 
 **MCP Output Format:**
+
 ```json
 {
   "suggestions": [...],

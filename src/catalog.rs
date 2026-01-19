@@ -76,6 +76,7 @@ impl Catalog {
     }
 
     /// Load a catalog from disk
+    #[allow(dead_code)] // Public API for future catalog commands
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
             return Err(ApsError::CatalogNotFound);
