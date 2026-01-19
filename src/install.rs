@@ -82,21 +82,68 @@ pub fn install_entry(
     let checksum = compute_source_checksum(&resolved.source_path)?;
     debug!("Source checksum: {}", checksum);
 
-    // Check if content is unchanged (no-op)
-    if lockfile.checksum_matches(&entry.id, &checksum) {
-        info!("Entry {} is up to date (checksum match)", entry.id);
-        return Ok(InstallResult {
-            id: entry.id.clone(),
-            installed: false,
-            skipped_no_change: true,
-            locked_entry: None,
-            warnings: Vec::new(),
-        });
-    }
-
     // Resolve destination path
     let dest_path = manifest_dir.join(entry.destination());
     debug!("Destination path: {:?}", dest_path);
+
+    // Check if content is unchanged AND destination is valid (no-op)
+    if lockfile.checksum_matches(&entry.id, &checksum) {
+        // Even with matching checksum, verify destination exists and symlink targets are correct
+        let dest_valid = if let Some(locked_entry) = lockfile.entries.get(&entry.id) {
+            if locked_entry.is_symlink {
+                // For symlinks, verify the symlink exists and points to the correct target
+                match dest_path.symlink_metadata() {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        // Check if symlink target matches current source path
+                        match std::fs::read_link(&dest_path) {
+                            Ok(current_target) => {
+                                let expected_target = &resolved.source_path;
+                                // Canonicalize both paths for comparison (handle relative vs absolute)
+                                let current_canonical = current_target
+                                    .canonicalize()
+                                    .unwrap_or(current_target.clone());
+                                let expected_canonical = expected_target
+                                    .canonicalize()
+                                    .unwrap_or(expected_target.clone());
+                                if current_canonical != expected_canonical {
+                                    debug!(
+                                        "Symlink target changed: {:?} -> {:?}",
+                                        current_canonical, expected_canonical
+                                    );
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                            Err(_) => false,
+                        }
+                    }
+                    _ => false, // Not a symlink or doesn't exist
+                }
+            } else {
+                // For regular files, just check if destination exists
+                dest_path.exists()
+            }
+        } else {
+            false // No locked entry
+        };
+
+        if dest_valid {
+            info!("Entry {} is up to date (checksum match)", entry.id);
+            return Ok(InstallResult {
+                id: entry.id.clone(),
+                installed: false,
+                skipped_no_change: true,
+                locked_entry: None,
+                warnings: Vec::new(),
+            });
+        } else {
+            debug!(
+                "Entry {} has matching checksum but destination needs repair",
+                entry.id
+            );
+        }
+    }
 
     // Check for conflicts
     // For directory assets (CursorRules, CursorSkillsRoot) using symlinks, we use
