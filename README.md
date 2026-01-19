@@ -87,53 +87,7 @@ aps status
 
 ### Manifest File (`aps.yaml`)
 
-```yaml
-entries:
-  - id: my-agents
-    kind: agents_md
-    source:
-      type: filesystem
-      root: /Users/my-username
-      path: AGENTS-generic.md
-    dest: AGENTS.md
-
-  - id: personal-rules
-    kind: cursor_rules
-    source:
-      type: git
-      repo: git@github.com:your-username/dotfiles.git
-      ref: main
-      path: .cursor/rules
-    dest: ./.cursor/rules/
-
-  - id: company-rules
-    kind: cursor_rules
-    source:
-      type: filesystem
-      root: /Users/my-username/work/acme-corp/internal-prompts
-      path: rules
-    dest: ./.cursor/rules/
-
-  - id: rules-in-formation
-    kind: cursor_rules
-    source:
-      type: filesystem
-      root: /Users/my-username/work/acme-corp/internal-prompts
-      path: dumping-ground
-    dest: ./.cursor/rules/
-
-  - id: anthropic-skills
-    kind: agent_skill
-    source:
-      type: git
-      repo: git@github.com:anthropics/skills.git
-      ref: main
-      path: skills
-    include:
-      - pdf
-      - skill-creation
-    dest: ./.claude/skills/
-```
+See [Examples](#examples) below for full manifest configurations.
 
 ### Asset Types
 
@@ -170,7 +124,7 @@ entries:
     kind: agents_md
     source:
       type: filesystem
-      root: ~/shared-prompts
+      root: /Users/my-username/shared-prompts
       path: AGENTS.md
 ```
 
