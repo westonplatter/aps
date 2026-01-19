@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.2...aps-v0.1.3) (2026-01-19)
+
+
+### Features
+
+* Change "aps pull" command to "aps sync" ([#32](https://github.com/westonplatter/agentic-prompt-sync/issues/32)) ([f43f204](https://github.com/westonplatter/agentic-prompt-sync/commit/f43f204f8444f1a57074921fa85225fc151f93ac))
+* generate v1 aps.catalog.yaml ([#29](https://github.com/westonplatter/agentic-prompt-sync/issues/29)) ([476e981](https://github.com/westonplatter/agentic-prompt-sync/commit/476e98133ac697c6fe5119b615ec92370d933d4d))
+
 ## [0.1.2](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.1...aps-v0.1.2) (2026-01-19)
 
 
