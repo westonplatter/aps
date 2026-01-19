@@ -1,6 +1,6 @@
 use crate::catalog::Catalog;
 use crate::cli::{
-    CatalogGenerateArgs, InitArgs, ManifestFormat, PullArgs, StatusArgs, ValidateArgs,
+    CatalogGenerateArgs, InitArgs, ManifestFormat, StatusArgs, SyncArgs, ValidateArgs,
 };
 use crate::error::{ApsError, Result};
 use crate::install::{install_entry, InstallOptions, InstallResult};
@@ -100,8 +100,8 @@ fn update_gitignore(manifest_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Execute the `aps pull` command
-pub fn cmd_pull(args: PullArgs) -> Result<()> {
+/// Execute the `aps sync` command
+pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     // Discover and load manifest
     let (manifest, manifest_path) = discover_manifest(args.manifest.as_deref())?;
     let base_dir = manifest_dir(&manifest_path);

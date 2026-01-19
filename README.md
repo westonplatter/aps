@@ -6,7 +6,7 @@ A manifest-driven CLI tool for safely syncing agentic assets (Cursor rules, Curs
 
 - **Declarative manifest-driven sync** - Define your assets in a YAML manifest
 - **Safe installs** - Automatic conflict detection and backup creation
-- **Deterministic lockfile** - Idempotent pulls that only update when needed
+- **Deterministic lockfile** - Idempotent syncs that only update when needed
 - **Scriptable CLI** - Optional interactivity for CI/CD pipelines
 
 ## Installation
@@ -77,10 +77,10 @@ entries:
     dest: ./AGENTS.md
 ```
 
-3. **Pull and install** your assets:
+3. **Sync and install** your assets:
 
 ```bash
-aps pull
+aps sync
 ```
 
 4. **Check status** of synced assets:
@@ -94,20 +94,20 @@ aps status
 | Command        | Description                                       |
 | -------------- | ------------------------------------------------- |
 | `aps init`     | Create a new manifest file and update .gitignore  |
-| `aps pull`     | Pull all entries from manifest and install assets |
+| `aps sync`     | Sync all entries from manifest and install assets |
 | `aps validate` | Validate manifest schema and check sources        |
-| `aps status`   | Display last pull information from lockfile       |
+| `aps status`   | Display last sync information from lockfile       |
 
 ### Common Options
 
 - `--verbose` - Enable verbose logging
 - `--manifest <path>` - Specify manifest file path (default: `aps.yaml`)
 
-### Pull Options
+### Sync Options
 
 - `--yes` - Non-interactive mode, automatically confirm overwrites
 - `--dry-run` - Preview changes without applying them
-- `--only <id>` - Only pull specific entry by ID
+- `--only <id>` - Only sync specific entry by ID
 
 ## Configuration
 
@@ -174,14 +174,14 @@ entries:
 
 | Type         | Description                 | Key Properties                   |
 | ------------ | --------------------------- | -------------------------------- |
-| `filesystem` | Pull from a local directory | `root`, `path`, `symlink`        |
-| `git`        | Pull from a git repository  | `repo`, `ref`, `path`, `shallow` |
+| `filesystem` | Sync from a local directory | `root`, `path`, `symlink`        |
+| `git`        | Sync from a git repository  | `repo`, `ref`, `path`, `shallow` |
 
 **Shell Variable Expansion**: Path values in `root` and `path` fields support shell variable expansion (e.g., `$HOME`, `$USER`). This makes manifests portable across different machines and users.
 
 ### Lockfile (`aps.manifest.lock`)
 
-The lockfile tracks installed assets and is automatically created/updated by `aps pull`. **This file should be committed to version control** to ensure reproducible installations across your team. It stores:
+The lockfile tracks installed assets and is automatically created/updated by `aps sync`. **This file should be committed to version control** to ensure reproducible installations across your team. It stores:
 
 - Source information
 - Destination paths
@@ -190,13 +190,13 @@ The lockfile tracks installed assets and is automatically created/updated by `ap
 
 ## Examples
 
-### Non-interactive pull for CI/CD
+### Non-interactive sync for CI/CD
 
 ```bash
-aps pull --yes
+aps sync --yes
 ```
 
-### Validate manifest before pull
+### Validate manifest before sync
 
 ```bash
 aps validate --strict
@@ -230,7 +230,7 @@ trunk check list  # View available linters
 ### Run with verbose logging
 
 ```bash
-cargo run -- --verbose pull
+cargo run -- --verbose sync
 ```
 
 ## License

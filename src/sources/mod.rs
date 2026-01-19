@@ -1,4 +1,4 @@
-//! Source adapters for pulling assets from different locations.
+//! Source adapters for syncing assets from different locations.
 //!
 //! This module defines the `SourceAdapter` trait and provides implementations
 //! for different source types (filesystem, git, etc.).

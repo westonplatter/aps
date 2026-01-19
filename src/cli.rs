@@ -23,8 +23,8 @@ pub enum Commands {
     /// Initialize a new manifest file
     Init(InitArgs),
 
-    /// Pull and install assets from manifest sources
-    Pull(PullArgs),
+    /// Sync and install assets from manifest sources
+    Sync(SyncArgs),
 
     /// Validate manifest and sources
     Validate(ValidateArgs),
@@ -55,12 +55,12 @@ pub enum ManifestFormat {
 }
 
 #[derive(Parser, Debug)]
-pub struct PullArgs {
+pub struct SyncArgs {
     /// Path to the manifest file
     #[arg(long)]
     pub manifest: Option<PathBuf>,
 
-    /// Only pull specific entry IDs (can be repeated)
+    /// Only sync specific entry IDs (can be repeated)
     #[arg(long = "only")]
     pub only: Vec<String>,
 

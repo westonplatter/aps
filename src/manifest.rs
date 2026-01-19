@@ -33,7 +33,7 @@ pub struct Entry {
     /// The kind of asset
     pub kind: AssetKind,
 
-    /// The source to pull from
+    /// The source to sync from
     pub source: Source,
 
     /// Optional destination override
@@ -114,7 +114,7 @@ impl AssetKind {
     }
 }
 
-/// Source types for pulling assets
+/// Source types for syncing assets
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Source {

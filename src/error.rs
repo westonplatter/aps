@@ -83,7 +83,7 @@ pub enum ApsError {
     #[error("No lockfile found")]
     #[diagnostic(
         code(aps::lockfile::not_found),
-        help("Run `aps pull` first to create a lockfile")
+        help("Run `aps sync` first to create a lockfile")
     )]
     LockfileNotFound,
 

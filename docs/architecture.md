@@ -19,7 +19,7 @@ APS uses a **manifest-driven workflow** with **lockfile-based tracking** to prov
 src/
 ├── main.rs               # CLI entry point + command dispatch
 ├── cli.rs                # Argument parsing (clap)
-├── commands.rs           # Command implementations (init, pull, validate, status)
+├── commands.rs           # Command implementations (init, sync, validate, status)
 ├── manifest.rs           # Manifest/Entry structures + YAML loading
 ├── sources/              # Adapter pattern implementation
 │   ├── mod.rs            # SourceAdapter trait + ResolvedSource
@@ -137,14 +137,14 @@ cli.rs (Argument Parsing with clap)
     ↓
 commands.rs (Command Dispatch)
     ├── cmd_init()      → Create manifest + .gitignore
-    ├── cmd_pull()      → Main installation workflow
+    ├── cmd_sync()      → Main installation workflow
     ├── cmd_validate()  → Validate manifest & sources
     └── cmd_status()    → Display lockfile status
 ```
 
-### Pull Command Workflow
+### Sync Command Workflow
 
-The `cmd_pull()` function is the core workflow:
+The `cmd_sync()` function is the core workflow:
 
 1. **Manifest Discovery** - Walk up directory tree looking for `aps.yaml`
 2. **Entry Processing Loop** - For each manifest entry:
