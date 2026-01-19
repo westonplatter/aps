@@ -6,9 +6,8 @@ use crate::lockfile::{display_status, Lockfile, LOCKFILE_NAME};
 use crate::manifest::{
     discover_manifest, manifest_dir, validate_manifest, AssetKind, Manifest, DEFAULT_MANIFEST_NAME,
 };
-use dialoguer::Confirm;
 use std::fs;
-use std::io::{IsTerminal, Write};
+use std::io::Write;
 use std::path::Path;
 use tracing::info;
 
@@ -115,20 +114,6 @@ pub fn cmd_pull(args: PullArgs) -> Result<()> {
     // Discover and load manifest
     let (manifest, manifest_path) = discover_manifest(args.manifest.as_deref())?;
     let base_dir = manifest_dir(&manifest_path);
-
-    // Interactive manifest confirmation (if TTY and not using --yes)
-    if !args.yes && std::io::stdin().is_terminal() && args.manifest.is_none() {
-        let confirm = Confirm::new()
-            .with_prompt(format!("Use manifest at {:?}?", manifest_path))
-            .default(true)
-            .interact()
-            .map_err(|_| ApsError::Cancelled)?;
-
-        if !confirm {
-            println!("Aborted. Use --manifest <path> to specify a different manifest.");
-            return Ok(());
-        }
-    }
 
     println!("Using manifest: {:?}", manifest_path);
 
