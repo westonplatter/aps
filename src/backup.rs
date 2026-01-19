@@ -12,8 +12,12 @@ pub fn create_backup(base_dir: &Path, dest_path: &Path) -> Result<PathBuf> {
 
     // Create backup directory if it doesn't exist
     if !backup_root.exists() {
-        std::fs::create_dir_all(&backup_root)
-            .map_err(|e| ApsError::io(e, format!("Failed to create backup directory at {:?}", backup_root)))?;
+        std::fs::create_dir_all(&backup_root).map_err(|e| {
+            ApsError::io(
+                e,
+                format!("Failed to create backup directory at {:?}", backup_root),
+            )
+        })?;
         debug!("Created backup directory at {:?}", backup_root);
     }
 

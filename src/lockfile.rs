@@ -197,7 +197,10 @@ pub fn display_status(lockfile: &Lockfile) {
                 println!("Items:        {} symlinked", entry.symlinked_items.len());
             }
         }
-        println!("Last updated: {}", entry.last_updated_at.format("%Y-%m-%d %H:%M:%S UTC"));
+        println!(
+            "Last updated: {}",
+            entry.last_updated_at.format("%Y-%m-%d %H:%M:%S UTC")
+        );
         println!("Checksum:     {}", entry.checksum);
         println!("{}", "-".repeat(80));
     }

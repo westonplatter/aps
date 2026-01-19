@@ -33,8 +33,7 @@ fn main() -> Result<()> {
         .with_thread_names(false)
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set tracing subscriber");
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
     // Execute the appropriate command
     let result = match cli.command {

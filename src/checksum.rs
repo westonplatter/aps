@@ -8,8 +8,9 @@ pub fn compute_checksum(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
 
     if path.is_file() {
-        let content = std::fs::read(path)
-            .map_err(|e| ApsError::io(e, format!("Failed to read file for checksum: {:?}", path)))?;
+        let content = std::fs::read(path).map_err(|e| {
+            ApsError::io(e, format!("Failed to read file for checksum: {:?}", path))
+        })?;
         hasher.update(&content);
     } else if path.is_dir() {
         // Collect all file paths relative to the directory, sorted for determinism
@@ -32,8 +33,12 @@ pub fn compute_checksum(path: &Path) -> Result<String> {
             hasher.update(b"\0"); // separator
 
             // Hash the file content
-            let content = std::fs::read(&file_path)
-                .map_err(|e| ApsError::io(e, format!("Failed to read file for checksum: {:?}", file_path)))?;
+            let content = std::fs::read(&file_path).map_err(|e| {
+                ApsError::io(
+                    e,
+                    format!("Failed to read file for checksum: {:?}", file_path),
+                )
+            })?;
             hasher.update(&content);
         }
     }

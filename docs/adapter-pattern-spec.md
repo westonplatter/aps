@@ -12,6 +12,7 @@ pub enum Source {
 ```
 
 **Issues:**
+
 1. Adding new source types (S3, HTTP, etc.) requires modifying core code
 2. Source-specific logic scattered across `install.rs`, `commands.rs`
 3. No clear interface contract for what a "source" must provide

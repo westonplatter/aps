@@ -41,7 +41,9 @@ pub fn clone_and_resolve(url: &str, git_ref: &str, shallow: bool) -> Result<Reso
 
     info!(
         "Cloned {} at ref '{}' (commit {})",
-        url, resolved_ref, &commit_sha[..8.min(commit_sha.len())]
+        url,
+        resolved_ref,
+        &commit_sha[..8.min(commit_sha.len())]
     );
 
     Ok(ResolvedGitSource {
@@ -53,12 +55,7 @@ pub fn clone_and_resolve(url: &str, git_ref: &str, shallow: bool) -> Result<Reso
 }
 
 /// Try to clone with fallback refs using git CLI
-fn clone_with_ref_fallback(
-    url: &str,
-    path: &Path,
-    refs: &[&str],
-    shallow: bool,
-) -> Result<String> {
+fn clone_with_ref_fallback(url: &str, path: &Path, refs: &[&str], shallow: bool) -> Result<String> {
     let mut last_error = None;
 
     for ref_name in refs {
@@ -133,4 +130,3 @@ fn get_head_commit(repo_path: &Path) -> Result<String> {
     let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(sha)
 }
-

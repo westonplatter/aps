@@ -65,12 +65,12 @@ aps status
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `aps init` | Create a new manifest file and update .gitignore |
-| `aps pull` | Pull all entries from manifest and install assets |
-| `aps validate` | Validate manifest schema and check sources |
-| `aps status` | Display last pull information from lockfile |
+| Command        | Description                                       |
+| -------------- | ------------------------------------------------- |
+| `aps init`     | Create a new manifest file and update .gitignore  |
+| `aps pull`     | Pull all entries from manifest and install assets |
+| `aps validate` | Validate manifest schema and check sources        |
+| `aps status`   | Display last pull information from lockfile       |
 
 ### Common Options
 
@@ -137,19 +137,19 @@ entries:
 
 ### Asset Types
 
-| Kind | Description | Default Destination |
-|------|-------------|---------------------|
-| `agents_md` | Single AGENTS.md file | `./AGENTS.md` |
-| `cursor_rules` | Directory of Cursor rules | `./.cursor/rules/` |
+| Kind                 | Description                  | Default Destination |
+| -------------------- | ---------------------------- | ------------------- |
+| `agents_md`          | Single AGENTS.md file        | `./AGENTS.md`       |
+| `cursor_rules`       | Directory of Cursor rules    | `./.cursor/rules/`  |
 | `cursor_skills_root` | Directory with skill subdirs | `./.cursor/skills/` |
-| `agent_skill` | Claude agent skill directory | `./.claude/skills/` |
+| `agent_skill`        | Claude agent skill directory | `./.claude/skills/` |
 
 ### Source Types
 
-| Type | Description | Key Properties |
-|------|-------------|----------------|
-| `filesystem` | Pull from a local directory | `root`, `path`, `symlink` |
-| `git` | Pull from a git repository | `repo`, `ref`, `path`, `shallow` |
+| Type         | Description                 | Key Properties                   |
+| ------------ | --------------------------- | -------------------------------- |
+| `filesystem` | Pull from a local directory | `root`, `path`, `symlink`        |
+| `git`        | Pull from a git repository  | `repo`, `ref`, `path`, `shallow` |
 
 ### Lockfile (`.aps.lock`)
 

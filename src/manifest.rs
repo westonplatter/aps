@@ -103,7 +103,9 @@ impl AssetKind {
             "cursor_skills_root" => Ok(AssetKind::CursorSkillsRoot),
             "agents_md" => Ok(AssetKind::AgentsMd),
             "agent_skill" => Ok(AssetKind::AgentSkill),
-            _ => Err(ApsError::InvalidAssetKind { kind: s.to_string() }),
+            _ => Err(ApsError::InvalidAssetKind {
+                kind: s.to_string(),
+            }),
         }
     }
 }
@@ -186,7 +188,8 @@ pub fn discover_manifest(override_path: Option<&Path>) -> Result<(Manifest, Path
 
 /// Walk up from CWD to find a manifest file
 fn find_manifest_walk_up() -> Result<PathBuf> {
-    let cwd = std::env::current_dir().map_err(|e| ApsError::io(e, "Failed to get current directory"))?;
+    let cwd =
+        std::env::current_dir().map_err(|e| ApsError::io(e, "Failed to get current directory"))?;
     let mut current = cwd.as_path();
 
     loop {
@@ -222,9 +225,10 @@ pub fn load_manifest(path: &Path) -> Result<Manifest> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ApsError::io(e, format!("Failed to read manifest at {:?}", path)))?;
 
-    let manifest: Manifest = serde_yaml::from_str(&content).map_err(|e| ApsError::ManifestParseError {
-        message: e.to_string(),
-    })?;
+    let manifest: Manifest =
+        serde_yaml::from_str(&content).map_err(|e| ApsError::ManifestParseError {
+            message: e.to_string(),
+        })?;
 
     Ok(manifest)
 }

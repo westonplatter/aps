@@ -123,10 +123,7 @@ pub fn install_entry(
             } else if std::io::stdin().is_terminal() {
                 // Interactive prompt
                 Confirm::new()
-                    .with_prompt(format!(
-                        "Overwrite existing content at {:?}?",
-                        dest_path
-                    ))
+                    .with_prompt(format!("Overwrite existing content at {:?}?", dest_path))
                     .default(false)
                     .interact()
                     .map_err(|_| ApsError::Cancelled)?
@@ -163,7 +160,13 @@ pub fn install_entry(
         }
         Vec::new()
     } else {
-        let items = install_asset(&entry.kind, &resolved.source_path, &dest_path, resolved.use_symlink, &entry.include)?;
+        let items = install_asset(
+            &entry.kind,
+            &resolved.source_path,
+            &dest_path,
+            resolved.use_symlink,
+            &entry.include,
+        )?;
         if resolved.use_symlink {
             println!("Symlinked {} to {:?}", entry.id, dest_path);
         } else {
@@ -234,7 +237,12 @@ fn resolve_source(source: &Source, manifest_dir: &Path) -> Result<ResolvedSource
                 _temp_holder: None,
             })
         }
-        Source::Git { repo, r#ref, shallow, .. } => {
+        Source::Git {
+            repo,
+            r#ref,
+            shallow,
+            ..
+        } => {
             // Clone the repository
             println!("Fetching from git: {}", repo);
             let resolved = clone_and_resolve(repo, r#ref, *shallow)?;
@@ -289,8 +297,9 @@ fn install_asset(
                 symlinked_items.push(source.to_string_lossy().to_string());
                 debug!("Symlinked file {:?} to {:?}", source, dest);
             } else {
-                std::fs::copy(source, dest)
-                    .map_err(|e| ApsError::io(e, format!("Failed to copy {:?} to {:?}", source, dest)))?;
+                std::fs::copy(source, dest).map_err(|e| {
+                    ApsError::io(e, format!("Failed to copy {:?} to {:?}", source, dest))
+                })?;
                 debug!("Copied file {:?} to {:?}", source, dest);
             }
         }
@@ -307,16 +316,21 @@ fn install_asset(
 
                     // Ensure dest directory exists for individual symlinks
                     if !dest.exists() {
-                        std::fs::create_dir_all(dest)
-                            .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dest)))?;
+                        std::fs::create_dir_all(dest).map_err(|e| {
+                            ApsError::io(e, format!("Failed to create directory {:?}", dest))
+                        })?;
                     }
 
                     for item in items {
-                        let item_name = item.file_name()
-                            .ok_or_else(|| ApsError::io(
-                                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid filename"),
-                                format!("Failed to get filename from {:?}", item)
-                            ))?;
+                        let item_name = item.file_name().ok_or_else(|| {
+                            ApsError::io(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidInput,
+                                    "Invalid filename",
+                                ),
+                                format!("Failed to get filename from {:?}", item),
+                            )
+                        })?;
                         let item_dest = dest.join(item_name);
                         create_symlink(&item, &item_dest)?;
                         symlinked_items.push(item.to_string_lossy().to_string());
@@ -333,24 +347,34 @@ fn install_asset(
 
                     // Ensure dest exists
                     if dest.exists() {
-                        std::fs::remove_dir_all(dest)
-                            .map_err(|e| ApsError::io(e, format!("Failed to remove existing directory {:?}", dest)))?;
+                        std::fs::remove_dir_all(dest).map_err(|e| {
+                            ApsError::io(
+                                e,
+                                format!("Failed to remove existing directory {:?}", dest),
+                            )
+                        })?;
                     }
-                    std::fs::create_dir_all(dest)
-                        .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dest)))?;
+                    std::fs::create_dir_all(dest).map_err(|e| {
+                        ApsError::io(e, format!("Failed to create directory {:?}", dest))
+                    })?;
 
                     for item in items {
-                        let item_name = item.file_name()
-                            .ok_or_else(|| ApsError::io(
-                                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid filename"),
-                                format!("Failed to get filename from {:?}", item)
-                            ))?;
+                        let item_name = item.file_name().ok_or_else(|| {
+                            ApsError::io(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidInput,
+                                    "Invalid filename",
+                                ),
+                                format!("Failed to get filename from {:?}", item),
+                            )
+                        })?;
                         let item_dest = dest.join(item_name);
                         if item.is_dir() {
                             copy_directory(&item, &item_dest)?;
                         } else {
-                            std::fs::copy(&item, &item_dest)
-                                .map_err(|e| ApsError::io(e, format!("Failed to copy {:?}", item)))?;
+                            std::fs::copy(&item, &item_dest).map_err(|e| {
+                                ApsError::io(e, format!("Failed to copy {:?}", item))
+                            })?;
                         }
                     }
                 }
@@ -429,14 +453,20 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = dest.parent() {
         if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ApsError::io(e, format!("Failed to create parent directory {:?}", parent)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ApsError::io(e, format!("Failed to create parent directory {:?}", parent))
+            })?;
         }
     }
 
     // Remove existing destination if present
     if dest.exists() || dest.symlink_metadata().is_ok() {
-        if dest.is_dir() && !dest.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        if dest.is_dir()
+            && !dest
+                .symlink_metadata()
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+        {
             std::fs::remove_dir_all(&dest)
                 .map_err(|e| ApsError::io(e, format!("Failed to remove directory {:?}", dest)))?;
         } else {
@@ -445,8 +475,12 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
         }
     }
 
-    std::os::unix::fs::symlink(&source, &dest)
-        .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
+    std::os::unix::fs::symlink(&source, &dest).map_err(|e| {
+        ApsError::io(
+            e,
+            format!("Failed to create symlink {:?} -> {:?}", dest, source),
+        )
+    })?;
 
     Ok(())
 }
@@ -460,8 +494,9 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = dest.parent() {
         if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ApsError::io(e, format!("Failed to create parent directory {:?}", parent)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ApsError::io(e, format!("Failed to create parent directory {:?}", parent))
+            })?;
         }
     }
 
@@ -477,11 +512,19 @@ fn create_symlink(source: &Path, dest: &Path) -> Result<()> {
     }
 
     if source.is_dir() {
-        std::os::windows::fs::symlink_dir(&source, &dest)
-            .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
+        std::os::windows::fs::symlink_dir(&source, &dest).map_err(|e| {
+            ApsError::io(
+                e,
+                format!("Failed to create symlink {:?} -> {:?}", dest, source),
+            )
+        })?;
     } else {
-        std::os::windows::fs::symlink_file(&source, &dest)
-            .map_err(|e| ApsError::io(e, format!("Failed to create symlink {:?} -> {:?}", dest, source)))?;
+        std::os::windows::fs::symlink_file(&source, &dest).map_err(|e| {
+            ApsError::io(
+                e,
+                format!("Failed to create symlink {:?} -> {:?}", dest, source),
+            )
+        })?;
     }
 
     Ok(())
@@ -530,14 +573,16 @@ fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
     // Ensure parent directory exists first
     if let Some(parent) = dst.parent() {
         if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ApsError::io(e, format!("Failed to create parent directory {:?}", parent)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ApsError::io(e, format!("Failed to create parent directory {:?}", parent))
+            })?;
         }
     }
 
     if dst.exists() {
-        std::fs::remove_dir_all(&dst)
-            .map_err(|e| ApsError::io(e, format!("Failed to remove existing directory {:?}", dst)))?;
+        std::fs::remove_dir_all(&dst).map_err(|e| {
+            ApsError::io(e, format!("Failed to remove existing directory {:?}", dst))
+        })?;
     }
 
     std::fs::create_dir_all(&dst)

@@ -42,8 +42,12 @@ pub fn cmd_init(args: InitArgs) -> Result<()> {
     };
 
     // Write manifest file
-    fs::write(&manifest_path, &content)
-        .map_err(|e| ApsError::io(e, format!("Failed to write manifest to {:?}", manifest_path)))?;
+    fs::write(&manifest_path, &content).map_err(|e| {
+        ApsError::io(
+            e,
+            format!("Failed to write manifest to {:?}", manifest_path),
+        )
+    })?;
 
     println!("Created manifest at {:?}", manifest_path);
     info!("Created manifest at {:?}", manifest_path);
@@ -56,9 +60,7 @@ pub fn cmd_init(args: InitArgs) -> Result<()> {
 
 /// Update .gitignore to include the lockfile
 fn update_gitignore(manifest_path: &Path) -> Result<()> {
-    let manifest_dir = manifest_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
 
     let gitignore_path = manifest_dir.join(".gitignore");
     let lockfile_entry = LOCKFILE_NAME;
@@ -150,7 +152,11 @@ pub fn cmd_pull(args: PullArgs) -> Result<()> {
             }
         }
 
-        println!("Filtering to {} of {} entries", filtered.len(), manifest.entries.len());
+        println!(
+            "Filtering to {} of {} entries",
+            filtered.len(),
+            manifest.entries.len()
+        );
         filtered
     };
 
@@ -194,11 +200,16 @@ pub fn cmd_pull(args: PullArgs) -> Result<()> {
 
     println!();
     if args.dry_run {
-        println!("[dry-run] Would install {} entries, {} already up to date",
-            results.len() - skipped_count, skipped_count);
+        println!(
+            "[dry-run] Would install {} entries, {} already up to date",
+            results.len() - skipped_count,
+            skipped_count
+        );
     } else {
-        println!("Installed {} entries, {} already up to date",
-            installed_count, skipped_count);
+        println!(
+            "Installed {} entries, {} already up to date",
+            installed_count, skipped_count
+        );
     }
 
     if warning_count > 0 {
@@ -248,13 +259,19 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
                 } else {
                     // Validate skills if applicable
                     if entry.kind == AssetKind::CursorSkillsRoot {
-                        let skill_warnings = validate_skills_for_validate(&source_path, &entry.id, args.strict)?;
+                        let skill_warnings =
+                            validate_skills_for_validate(&source_path, &entry.id, args.strict)?;
                         warnings.extend(skill_warnings);
                     }
                     println!("  [OK] {} (filesystem: {})", entry.id, root);
                 }
             }
-            crate::manifest::Source::Git { repo, r#ref, shallow, .. } => {
+            crate::manifest::Source::Git {
+                repo,
+                r#ref,
+                shallow,
+                ..
+            } => {
                 // Validate git source by attempting to clone
                 print!("  [..] {} (git: {}) - checking...", entry.id, repo);
                 std::io::stdout().flush().ok();
@@ -279,10 +296,17 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
                         } else {
                             // Validate skills if applicable
                             if entry.kind == AssetKind::CursorSkillsRoot {
-                                let skill_warnings = validate_skills_for_validate(&source_path, &entry.id, args.strict)?;
+                                let skill_warnings = validate_skills_for_validate(
+                                    &source_path,
+                                    &entry.id,
+                                    args.strict,
+                                )?;
                                 warnings.extend(skill_warnings);
                             }
-                            println!("\r  [OK] {} (git: {} @ {})", entry.id, repo, resolved.resolved_ref);
+                            println!(
+                                "\r  [OK] {} (git: {} @ {})",
+                                entry.id, repo, resolved.resolved_ref
+                            );
                         }
                     }
                     Err(e) => {
@@ -303,7 +327,10 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
     // Print summary
     println!();
     if warnings.is_empty() {
-        println!("Manifest is valid. All {} entries validated successfully.", manifest.entries.len());
+        println!(
+            "Manifest is valid. All {} entries validated successfully.",
+            manifest.entries.len()
+        );
     } else {
         println!("Manifest is valid with {} warning(s).", warnings.len());
         if !args.strict {
@@ -315,7 +342,11 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
 }
 
 /// Validate skills directory for the validate command
-fn validate_skills_for_validate(source: &Path, entry_id: &str, strict: bool) -> Result<Vec<String>> {
+fn validate_skills_for_validate(
+    source: &Path,
+    entry_id: &str,
+    strict: bool,
+) -> Result<Vec<String>> {
     let mut warnings = Vec::new();
 
     for dir_entry in std::fs::read_dir(source)
@@ -332,7 +363,10 @@ fn validate_skills_for_validate(source: &Path, entry_id: &str, strict: bool) -> 
         let skill_md_path = skill_path.join("SKILL.md");
 
         if !skill_md_path.exists() {
-            let warning = format!("Skill '{}' in entry '{}' is missing SKILL.md", skill_name, entry_id);
+            let warning = format!(
+                "Skill '{}' in entry '{}' is missing SKILL.md",
+                skill_name, entry_id
+            );
             if strict {
                 return Err(ApsError::MissingSkillMd { skill_name });
             }
