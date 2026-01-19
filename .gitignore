@@ -3,6 +3,7 @@
 # APS (Agentic Prompt Sync)
 .aps-backups/
 aps.yaml
+aps.catalog.yaml
 aps.manifest.lock
 
 AGENTS.md
