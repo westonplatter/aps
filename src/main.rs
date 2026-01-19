@@ -3,11 +3,11 @@ mod checksum;
 mod cli;
 mod commands;
 mod error;
-mod git;
 mod install;
 mod lockfile;
 mod manifest;
 mod orphan;
+mod sources;
 
 use clap::Parser;
 use cli::{Cli, Commands};

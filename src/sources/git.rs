@@ -1,10 +1,83 @@
+//! Git source adapter for cloning repositories.
+
+use super::{expand_path, GitInfo, ResolvedSource, SourceAdapter};
 use crate::error::{ApsError, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 use tracing::{debug, info};
 
-/// Result of resolving a git source
+/// Git source adapter for cloning repositories
+#[derive(Debug, Clone)]
+pub struct GitSource {
+    /// Repository URL (SSH or HTTPS)
+    pub repo: String,
+    /// Git ref (branch, tag, commit) - "auto" tries main then master
+    pub git_ref: String,
+    /// Whether to use shallow clone
+    pub shallow: bool,
+    /// Optional path within the repository
+    pub path: Option<String>,
+}
+
+impl GitSource {
+    /// Create a new GitSource
+    pub fn new(repo: String, git_ref: String, shallow: bool, path: Option<String>) -> Self {
+        Self {
+            repo,
+            git_ref,
+            shallow,
+            path,
+        }
+    }
+}
+
+impl SourceAdapter for GitSource {
+    fn source_type(&self) -> &'static str {
+        "git"
+    }
+
+    fn display_name(&self) -> String {
+        self.repo.clone()
+    }
+
+    fn path(&self) -> &str {
+        self.path.as_deref().unwrap_or(".")
+    }
+
+    fn supports_symlink(&self) -> bool {
+        false // Git sources always copy from temp directory
+    }
+
+    fn resolve(&self, _manifest_dir: &Path) -> Result<ResolvedSource> {
+        info!("Cloning git repository: {}", self.repo);
+
+        // Clone the repository
+        let resolved_git = clone_and_resolve(&self.repo, &self.git_ref, self.shallow)?;
+
+        // Build the path within the cloned repo
+        let path = expand_path(self.path());
+        let source_path = if path == "." {
+            resolved_git.repo_path.clone()
+        } else {
+            resolved_git.repo_path.join(&path)
+        };
+
+        let git_info = GitInfo {
+            resolved_ref: resolved_git.resolved_ref.clone(),
+            commit_sha: resolved_git.commit_sha.clone(),
+        };
+
+        Ok(ResolvedSource::git(
+            source_path,
+            self.display_name(),
+            git_info,
+            resolved_git,
+        ))
+    }
+}
+
+/// Internal result of resolving a git source (keeps temp dir alive)
 pub struct ResolvedGitSource {
     /// Temp directory containing the clone (must be kept alive)
     pub _temp_dir: TempDir,

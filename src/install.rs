@@ -1,9 +1,8 @@
 use crate::backup::{create_backup, has_conflict};
 use crate::checksum::compute_source_checksum;
 use crate::error::{ApsError, Result};
-use crate::git::{clone_and_resolve, ResolvedGitSource};
 use crate::lockfile::{LockedEntry, Lockfile};
-use crate::manifest::{AssetKind, Entry, Source};
+use crate::manifest::{AssetKind, Entry};
 use dialoguer::Confirm;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -37,27 +36,6 @@ pub struct InstallResult {
     pub warnings: Vec<String>,
 }
 
-/// Resolved source information
-struct ResolvedSource {
-    /// Path to the actual source content
-    source_path: PathBuf,
-    /// Display name for the source
-    source_display: String,
-    /// Git-specific info (if applicable)
-    git_info: Option<GitInfo>,
-    /// Whether to create symlinks instead of copying (filesystem sources only)
-    use_symlink: bool,
-    /// Keep the temp dir alive for git sources
-    #[allow(dead_code)]
-    _temp_holder: Option<ResolvedGitSource>,
-}
-
-/// Git-specific resolution info
-struct GitInfo {
-    resolved_ref: String,
-    commit_sha: String,
-}
-
 /// Install a single entry
 pub fn install_entry(
     entry: &Entry,
@@ -67,8 +45,9 @@ pub fn install_entry(
 ) -> Result<InstallResult> {
     info!("Processing entry: {}", entry.id);
 
-    // Resolve source (handles both filesystem and git)
-    let resolved = resolve_source(&entry.source, manifest_dir)?;
+    // Convert source to adapter and resolve
+    let adapter = entry.source.into_adapter();
+    let resolved = adapter.resolve(manifest_dir)?;
     debug!("Source path: {:?}", resolved.source_path);
 
     // Verify source exists
@@ -222,32 +201,8 @@ pub fn install_entry(
         items
     };
 
-    // Create locked entry based on source type
-    let locked_entry = if let Some(git_info) = &resolved.git_info {
-        LockedEntry::new_git(
-            &resolved.source_display,
-            &dest_path.to_string_lossy(),
-            git_info.resolved_ref.clone(),
-            git_info.commit_sha.clone(),
-            checksum,
-        )
-    } else {
-        // Determine target path for symlinks
-        let target_path = if resolved.use_symlink {
-            Some(resolved.source_path.to_string_lossy().to_string())
-        } else {
-            None
-        };
-
-        LockedEntry::new_filesystem(
-            &resolved.source_display,
-            &dest_path.to_string_lossy(),
-            checksum,
-            resolved.use_symlink,
-            target_path,
-            symlinked_items,
-        )
-    };
+    // Create locked entry from resolved source
+    let locked_entry = resolved.to_locked_entry(&dest_path, checksum, symlinked_items);
 
     Ok(InstallResult {
         id: entry.id.clone(),
@@ -256,73 +211,6 @@ pub fn install_entry(
         locked_entry: Some(locked_entry),
         warnings,
     })
-}
-
-/// Expand shell variables in a path string (e.g., $HOME, ${HOME}, ~)
-fn expand_path(path: &str) -> String {
-    shellexpand::full(path)
-        .map(|s| s.into_owned())
-        .unwrap_or_else(|_| path.to_string())
-}
-
-/// Resolve the source and return path + metadata
-fn resolve_source(source: &Source, manifest_dir: &Path) -> Result<ResolvedSource> {
-    let path = expand_path(source.path());
-
-    match source {
-        Source::Filesystem { root, symlink, .. } => {
-            let expanded_root = expand_path(root);
-            let root_path = if Path::new(&expanded_root).is_absolute() {
-                PathBuf::from(&expanded_root)
-            } else {
-                manifest_dir.join(&expanded_root)
-            };
-            // If path is ".", use root directly; otherwise join
-            let source_path = if path == "." {
-                root_path
-            } else {
-                root_path.join(&path)
-            };
-
-            Ok(ResolvedSource {
-                source_path,
-                source_display: source.display_name(),
-                git_info: None,
-                use_symlink: *symlink,
-                _temp_holder: None,
-            })
-        }
-        Source::Git {
-            repo,
-            r#ref,
-            shallow,
-            ..
-        } => {
-            // Clone the repository
-            println!("Fetching from git: {}", repo);
-            let resolved = clone_and_resolve(repo, r#ref, *shallow)?;
-
-            // Build the path within the cloned repo
-            let source_path = if path == "." {
-                resolved.repo_path.clone()
-            } else {
-                resolved.repo_path.join(&path)
-            };
-
-            let git_info = GitInfo {
-                resolved_ref: resolved.resolved_ref.clone(),
-                commit_sha: resolved.commit_sha.clone(),
-            };
-
-            Ok(ResolvedSource {
-                source_path,
-                source_display: source.display_name(),
-                git_info: Some(git_info),
-                use_symlink: false, // Git sources always copy (temp dir)
-                _temp_holder: Some(resolved),
-            })
-        }
-    }
 }
 
 /// Install an asset based on its kind
@@ -662,68 +550,3 @@ fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_expand_path_with_home() {
-        // Set a test environment variable
-        std::env::set_var("TEST_VAR_HOME", "/test/home");
-
-        let result = expand_path("$TEST_VAR_HOME/documents");
-        assert_eq!(result, "/test/home/documents");
-
-        std::env::remove_var("TEST_VAR_HOME");
-    }
-
-    #[test]
-    fn test_expand_path_with_braced_syntax() {
-        std::env::set_var("TEST_VAR_BRACED", "/braced/path");
-
-        let result = expand_path("${TEST_VAR_BRACED}/subfolder");
-        assert_eq!(result, "/braced/path/subfolder");
-
-        std::env::remove_var("TEST_VAR_BRACED");
-    }
-
-    #[test]
-    fn test_expand_path_with_tilde() {
-        // Tilde expansion should work (expands to $HOME)
-        let result = expand_path("~/documents");
-        assert!(result.starts_with('/') || result.contains(":\\"));
-        assert!(result.ends_with("/documents") || result.ends_with("\\documents"));
-    }
-
-    #[test]
-    fn test_expand_path_no_variables() {
-        let result = expand_path("/absolute/path/to/file");
-        assert_eq!(result, "/absolute/path/to/file");
-    }
-
-    #[test]
-    fn test_expand_path_relative_path() {
-        let result = expand_path("relative/path");
-        assert_eq!(result, "relative/path");
-    }
-
-    #[test]
-    fn test_expand_path_undefined_variable_preserved() {
-        // Undefined variables should be preserved or return original
-        let result = expand_path("$UNDEFINED_VAR_12345/path");
-        // shellexpand leaves undefined vars as-is when using full()
-        assert!(result.contains("UNDEFINED_VAR_12345") || result.contains("path"));
-    }
-
-    #[test]
-    fn test_expand_path_multiple_variables() {
-        std::env::set_var("TEST_VAR_A", "/var/a");
-        std::env::set_var("TEST_VAR_B", "subfolder");
-
-        let result = expand_path("$TEST_VAR_A/$TEST_VAR_B/file.txt");
-        assert_eq!(result, "/var/a/subfolder/file.txt");
-
-        std::env::remove_var("TEST_VAR_A");
-        std::env::remove_var("TEST_VAR_B");
-    }
-}

@@ -1,4 +1,5 @@
 use crate::error::{ApsError, Result};
+use crate::sources::{FilesystemSource, GitSource, SourceAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -158,20 +159,25 @@ fn default_symlink() -> bool {
 }
 
 impl Source {
-    /// Get a display name for the source
-    pub fn display_name(&self) -> String {
+    /// Convert this Source into a SourceAdapter implementation
+    pub fn into_adapter(&self) -> Box<dyn SourceAdapter> {
         match self {
-            Source::Git { repo, .. } => repo.clone(),
-            Source::Filesystem { root, .. } => format!("filesystem:{}", root),
-        }
-    }
-
-    /// Get the path within the source (defaults to "." if not specified)
-    pub fn path(&self) -> &str {
-        match self {
-            Source::Git { path, .. } | Source::Filesystem { path, .. } => {
-                path.as_deref().unwrap_or(".")
-            }
+            Source::Git {
+                repo,
+                r#ref,
+                shallow,
+                path,
+            } => Box::new(GitSource::new(
+                repo.clone(),
+                r#ref.clone(),
+                *shallow,
+                path.clone(),
+            )),
+            Source::Filesystem {
+                root,
+                symlink,
+                path,
+            } => Box::new(FilesystemSource::new(root.clone(), *symlink, path.clone())),
         }
     }
 }

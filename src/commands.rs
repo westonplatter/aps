@@ -1,6 +1,5 @@
 use crate::cli::{InitArgs, ManifestFormat, PullArgs, StatusArgs, ValidateArgs};
 use crate::error::{ApsError, Result};
-use crate::git::clone_and_resolve;
 use crate::install::{install_entry, InstallOptions, InstallResult};
 use crate::lockfile::{display_status, Lockfile};
 use crate::manifest::{
@@ -223,91 +222,70 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
 
     println!("\nValidating entries:");
     for entry in &manifest.entries {
-        let path = entry.source.path();
-        match &entry.source {
-            crate::manifest::Source::Filesystem { root, .. } => {
-                let root_path = if Path::new(root).is_absolute() {
-                    std::path::PathBuf::from(root)
-                } else {
-                    base_dir.join(root)
-                };
-                let source_path = if path == "." {
-                    root_path.clone()
-                } else {
-                    root_path.join(path)
-                };
+        let adapter = entry.source.into_adapter();
+        let source_type = adapter.source_type();
+        let display_name = adapter.display_name();
 
-                if !source_path.exists() {
-                    let warning = format!("Source path not found: {:?}", source_path);
+        // For git sources, show progress indicator
+        if source_type == "git" {
+            print!("  [..] {} ({}) - checking...", entry.id, display_name);
+            std::io::stdout().flush().ok();
+        }
+
+        match adapter.resolve(&base_dir) {
+            Ok(resolved) => {
+                if !resolved.source_path.exists() {
+                    let warning = format!("Source path not found: {:?}", resolved.source_path);
                     if args.strict {
-                        return Err(ApsError::SourcePathNotFound { path: source_path });
+                        if source_type == "git" {
+                            println!(" FAILED");
+                        }
+                        return Err(ApsError::SourcePathNotFound {
+                            path: resolved.source_path,
+                        });
                     }
-                    println!("  [WARN] {} - {}", entry.id, warning);
+                    if source_type == "git" {
+                        println!(" WARN");
+                        println!("       Warning: {}", warning);
+                    } else {
+                        println!("  [WARN] {} - {}", entry.id, warning);
+                    }
                     warnings.push(warning);
                 } else {
                     // Validate skills if applicable
                     if entry.kind == AssetKind::CursorSkillsRoot {
-                        let skill_warnings =
-                            validate_skills_for_validate(&source_path, &entry.id, args.strict)?;
+                        let skill_warnings = validate_skills_for_validate(
+                            &resolved.source_path,
+                            &entry.id,
+                            args.strict,
+                        )?;
                         warnings.extend(skill_warnings);
                     }
-                    println!("  [OK] {} (filesystem: {})", entry.id, root);
+
+                    // Format output based on source type
+                    if let Some(git_info) = &resolved.git_info {
+                        println!(
+                            "\r  [OK] {} ({} @ {})",
+                            entry.id, display_name, git_info.resolved_ref
+                        );
+                    } else {
+                        println!("  [OK] {} ({})", entry.id, display_name);
+                    }
                 }
             }
-            crate::manifest::Source::Git {
-                repo,
-                r#ref,
-                shallow,
-                ..
-            } => {
-                // Validate git source by attempting to clone
-                print!("  [..] {} (git: {}) - checking...", entry.id, repo);
-                std::io::stdout().flush().ok();
-
-                match clone_and_resolve(repo, r#ref, *shallow) {
-                    Ok(resolved) => {
-                        // Check if path exists in repo
-                        let source_path = if path == "." {
-                            resolved.repo_path.clone()
-                        } else {
-                            resolved.repo_path.join(path)
-                        };
-                        if !source_path.exists() {
-                            let warning = format!("Path '{}' not found in repository", path);
-                            if args.strict {
-                                println!(" FAILED");
-                                return Err(ApsError::SourcePathNotFound { path: source_path });
-                            }
-                            println!(" WARN");
-                            println!("       Warning: {}", warning);
-                            warnings.push(warning);
-                        } else {
-                            // Validate skills if applicable
-                            if entry.kind == AssetKind::CursorSkillsRoot {
-                                let skill_warnings = validate_skills_for_validate(
-                                    &source_path,
-                                    &entry.id,
-                                    args.strict,
-                                )?;
-                                warnings.extend(skill_warnings);
-                            }
-                            println!(
-                                "\r  [OK] {} (git: {} @ {})",
-                                entry.id, repo, resolved.resolved_ref
-                            );
-                        }
+            Err(e) => {
+                if args.strict {
+                    if source_type == "git" {
+                        println!(" FAILED");
                     }
-                    Err(e) => {
-                        if args.strict {
-                            println!(" FAILED");
-                            return Err(e);
-                        }
-                        println!(" WARN");
-                        let warning = format!("Git source validation failed: {}", e);
-                        println!("       Warning: {}", warning);
-                        warnings.push(warning);
-                    }
+                    return Err(e);
                 }
+                if source_type == "git" {
+                    println!(" WARN");
+                }
+                let warning = format!("Source validation failed: {}", e);
+                println!("       Warning: {}", warning);
+                warnings.push(warning);
             }
         }
     }
