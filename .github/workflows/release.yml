@@ -45,7 +45,7 @@ jobs:
             target: aarch64-apple-darwin
             artifact: aps-macos-arm64
             binary: aps
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact: aps-macos-x64
             binary: aps
@@ -116,13 +116,13 @@ jobs:
         run: |
           cd artifacts
           find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} . \;
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum ./*.tar.gz ./*.zip > checksums.txt
 
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd artifacts
-          for file in *.tar.gz *.zip checksums.txt; do
+          for file in ./*.tar.gz ./*.zip checksums.txt; do
             gh release upload "${{ needs.release-please.outputs.tag_name }}" "$file" --repo "${{ github.repository }}"
           done
