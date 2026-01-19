@@ -60,10 +60,13 @@ impl Entry {
         }
     }
 
-    /// Get the destination path for this entry
+    /// Get the destination path for this entry (with shell variable expansion)
     pub fn destination(&self) -> PathBuf {
         if let Some(ref dest) = self.dest {
-            PathBuf::from(dest)
+            let expanded = shellexpand::full(dest)
+                .map(|s| s.into_owned())
+                .unwrap_or_else(|_| dest.clone());
+            PathBuf::from(expanded)
         } else {
             self.kind.default_dest()
         }
@@ -256,4 +259,84 @@ pub fn manifest_dir(manifest_path: &Path) -> PathBuf {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_entry_destination_default() {
+        let entry = Entry {
+            id: "test".to_string(),
+            kind: AssetKind::AgentsMd,
+            source: Source::Filesystem {
+                root: ".".to_string(),
+                symlink: true,
+                path: None,
+            },
+            dest: None,
+            include: Vec::new(),
+        };
+
+        assert_eq!(entry.destination(), PathBuf::from("AGENTS.md"));
+    }
+
+    #[test]
+    fn test_entry_destination_custom() {
+        let entry = Entry {
+            id: "test".to_string(),
+            kind: AssetKind::AgentsMd,
+            source: Source::Filesystem {
+                root: ".".to_string(),
+                symlink: true,
+                path: None,
+            },
+            dest: Some("custom/path/AGENTS.md".to_string()),
+            include: Vec::new(),
+        };
+
+        assert_eq!(entry.destination(), PathBuf::from("custom/path/AGENTS.md"));
+    }
+
+    #[test]
+    fn test_entry_destination_with_env_var() {
+        std::env::set_var("TEST_DEST_VAR", "/custom/dest");
+
+        let entry = Entry {
+            id: "test".to_string(),
+            kind: AssetKind::AgentsMd,
+            source: Source::Filesystem {
+                root: ".".to_string(),
+                symlink: true,
+                path: None,
+            },
+            dest: Some("$TEST_DEST_VAR/AGENTS.md".to_string()),
+            include: Vec::new(),
+        };
+
+        assert_eq!(entry.destination(), PathBuf::from("/custom/dest/AGENTS.md"));
+
+        std::env::remove_var("TEST_DEST_VAR");
+    }
+
+    #[test]
+    fn test_entry_destination_with_tilde() {
+        let entry = Entry {
+            id: "test".to_string(),
+            kind: AssetKind::AgentsMd,
+            source: Source::Filesystem {
+                root: ".".to_string(),
+                symlink: true,
+                path: None,
+            },
+            dest: Some("~/agents/AGENTS.md".to_string()),
+            include: Vec::new(),
+        };
+
+        let result = entry.destination();
+        // Tilde should be expanded to home directory
+        assert!(result.to_string_lossy().contains("agents/AGENTS.md"));
+        assert!(!result.to_string_lossy().starts_with("~"));
+    }
 }

@@ -36,3 +36,6 @@ walkdir = "2"
 
 # Temp directories for git clones
 tempfile = "3"
+
+# Shell variable expansion
+shellexpand = "3"
