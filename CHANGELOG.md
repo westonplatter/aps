@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.3...aps-v0.1.4) (2026-01-20)
+
+
+### Features
+
+* better terminal UX ([#35](https://github.com/westonplatter/agentic-prompt-sync/issues/35)) ([210a620](https://github.com/westonplatter/agentic-prompt-sync/commit/210a620c9eda81e3e8a5780517afeb32c954499f))
+* optimize git diff checking process ([#33](https://github.com/westonplatter/agentic-prompt-sync/issues/33)) ([088d2b4](https://github.com/westonplatter/agentic-prompt-sync/commit/088d2b44d48f9dac46f4dc55a209326a6bb49e62))
+
 ## [0.1.3](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.2...aps-v0.1.3) (2026-01-19)
 
 
