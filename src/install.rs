@@ -31,10 +31,13 @@ pub struct InstallOptions {
 /// Result of an install operation
 pub struct InstallResult {
     pub id: String,
+    #[allow(dead_code)]
     pub installed: bool,
     pub skipped_no_change: bool,
     pub locked_entry: Option<LockedEntry>,
     pub warnings: Vec<String>,
+    pub dest_path: PathBuf,
+    pub was_symlink: bool,
 }
 
 /// Install a single entry
@@ -61,12 +64,20 @@ pub fn install_entry(
                         entry.id,
                         &remote_sha[..8.min(remote_sha.len())]
                     );
+                    // Get was_symlink from lockfile if available
+                    let was_symlink = lockfile
+                        .entries
+                        .get(&entry.id)
+                        .map(|e| e.is_symlink)
+                        .unwrap_or(false);
                     return Ok(InstallResult {
                         id: entry.id.clone(),
                         installed: false,
                         skipped_no_change: true,
                         locked_entry: None,
                         warnings: Vec::new(),
+                        dest_path: dest_path.clone(),
+                        was_symlink,
                     });
                 }
                 debug!(
@@ -141,12 +152,20 @@ pub fn install_entry(
 
         if dest_valid {
             info!("Entry {} is up to date (checksum match)", entry.id);
+            // Get was_symlink from lockfile if available
+            let was_symlink = lockfile
+                .entries
+                .get(&entry.id)
+                .map(|e| e.is_symlink)
+                .unwrap_or(false);
             return Ok(InstallResult {
                 id: entry.id.clone(),
                 installed: false,
                 skipped_no_change: true,
                 locked_entry: None,
                 warnings: Vec::new(),
+                dest_path: dest_path.clone(),
+                was_symlink,
             });
         } else {
             debug!(
@@ -212,25 +231,15 @@ pub fn install_entry(
 
     // Perform the install
     let symlinked_items = if options.dry_run {
-        println!("[dry-run] Would install {} to {:?}", entry.id, dest_path);
-        if resolved.use_symlink {
-            println!("[dry-run] Would create symlink(s)");
-        }
         Vec::new()
     } else {
-        let items = install_asset(
+        install_asset(
             &entry.kind,
             &resolved.source_path,
             &dest_path,
             resolved.use_symlink,
             &entry.include,
-        )?;
-        if resolved.use_symlink {
-            println!("Symlinked {} to {:?}", entry.id, dest_path);
-        } else {
-            println!("Installed {} to {:?}", entry.id, dest_path);
-        }
-        items
+        )?
     };
 
     // Create locked entry from resolved source
@@ -242,6 +251,8 @@ pub fn install_entry(
         skipped_no_change: false,
         locked_entry: Some(locked_entry),
         warnings,
+        dest_path,
+        was_symlink: resolved.use_symlink,
     })
 }
 

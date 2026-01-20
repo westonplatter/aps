@@ -9,6 +9,7 @@ mod lockfile;
 mod manifest;
 mod orphan;
 mod sources;
+mod sync_output;
 
 use clap::Parser;
 use cli::{CatalogCommands, Cli, Commands};

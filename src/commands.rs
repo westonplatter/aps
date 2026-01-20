@@ -9,6 +9,7 @@ use crate::manifest::{
     discover_manifest, manifest_dir, validate_manifest, AssetKind, Manifest, DEFAULT_MANIFEST_NAME,
 };
 use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
+use crate::sync_output::{print_sync_results, print_sync_summary, SyncDisplayItem, SyncStatus};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -106,8 +107,6 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     let (manifest, manifest_path) = discover_manifest(args.manifest.as_deref())?;
     let base_dir = manifest_dir(&manifest_path);
 
-    println!("Using manifest: {:?}", manifest_path);
-
     // Validate manifest
     validate_manifest(&manifest)?;
 
@@ -128,11 +127,6 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
             }
         }
 
-        println!(
-            "Filtering to {} of {} entries",
-            filtered.len(),
-            manifest.entries.len()
-        );
         filtered
     };
 
@@ -179,32 +173,65 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
         lockfile.save(&lockfile_path)?;
     }
 
+    // Convert results to display items
+    let display_items: Vec<SyncDisplayItem> = results
+        .iter()
+        .map(|r| {
+            let status = if !r.warnings.is_empty() {
+                SyncStatus::Warning
+            } else if r.skipped_no_change {
+                SyncStatus::Current
+            } else if r.was_symlink {
+                SyncStatus::Synced
+            } else {
+                SyncStatus::Copied
+            };
+
+            let mut item = SyncDisplayItem::new(
+                r.id.clone(),
+                r.dest_path.to_string_lossy().to_string(),
+                status,
+            );
+
+            // Add warning message if present
+            if !r.warnings.is_empty() {
+                item = item.with_message(r.warnings.join(", "));
+            }
+
+            item
+        })
+        .collect();
+
+    // Print styled results
+    print_sync_results(&display_items, &manifest_path, args.dry_run);
+
+    // Calculate counts for summary
+    let synced_count = display_items
+        .iter()
+        .filter(|i| i.status == SyncStatus::Synced)
+        .count();
+    let copied_count = display_items
+        .iter()
+        .filter(|i| i.status == SyncStatus::Copied)
+        .count();
+    let current_count = display_items
+        .iter()
+        .filter(|i| i.status == SyncStatus::Current)
+        .count();
+    let warning_count = display_items
+        .iter()
+        .filter(|i| i.status == SyncStatus::Warning)
+        .count();
+
     // Print summary
-    let installed_count = results.iter().filter(|r| r.installed).count();
-    let skipped_count = results.iter().filter(|r| r.skipped_no_change).count();
-    let warning_count: usize = results.iter().map(|r| r.warnings.len()).sum();
-
-    println!();
-    if args.dry_run {
-        println!(
-            "[dry-run] Would install {} entries, {} already up to date",
-            results.len() - skipped_count,
-            skipped_count
-        );
-    } else {
-        println!(
-            "Installed {} entries, {} already up to date",
-            installed_count, skipped_count
-        );
-    }
-
-    if orphan_count > 0 {
-        println!("Cleaned up {} orphaned path(s)", orphan_count);
-    }
-
-    if warning_count > 0 {
-        println!("{} warning(s) generated", warning_count);
-    }
+    print_sync_summary(
+        synced_count,
+        copied_count,
+        current_count,
+        warning_count,
+        orphan_count,
+        args.dry_run,
+    );
 
     Ok(())
 }
