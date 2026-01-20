@@ -2,6 +2,8 @@
 
 A manifest-driven CLI tool for safely syncing agentic assets (Cursor rules, Cursor skills, Claude agent skills, and AGENTS.md files) from git or filesystem sources into your repository.
 
+![Example of running ap sync](./docs/aps-example.png)
+
 ## Features
 
 - **Declarative manifest-driven sync** - Define your assets in a YAML manifest
