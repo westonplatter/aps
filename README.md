@@ -113,6 +113,16 @@ aps status
 - `--dry-run` - Preview changes without applying them
 - `--only <id>` - Only sync specific entry by ID
 
+### Sync Behavior
+
+When you run `aps sync`:
+
+1. **Entries are synced** - Each entry in `aps.yaml` is installed to its destination
+2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in `aps.yaml` are automatically removed
+3. **Lockfile is saved** - The updated lockfile is written to disk
+
+Note: Stale entry cleanup only happens during a full sync. When using `--only <id>` to sync specific entries, other lockfile entries are preserved.
+
 ## Configuration
 
 ### Manifest File (`aps.yaml`)

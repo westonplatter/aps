@@ -169,6 +169,18 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
             }
         }
 
+        // Clean up stale entries (only during full sync, not with --only)
+        let removed_count = if args.only.is_empty() {
+            let manifest_ids: Vec<&str> = manifest.entries.iter().map(|e| e.id.as_str()).collect();
+            let removed = lockfile.retain_entries(&manifest_ids);
+            removed.len()
+        } else {
+            0
+        };
+        if removed_count > 0 {
+            info!("Removed {} stale entries from lockfile", removed_count);
+        }
+
         // Save lockfile
         lockfile.save(&lockfile_path)?;
     }
