@@ -207,15 +207,36 @@ mod tests {
         // Add entries
         lockfile.upsert(
             "entry1".to_string(),
-            LockedEntry::new_filesystem("source1", "dest1", "checksum1".to_string(), false, None, vec![]),
+            LockedEntry::new_filesystem(
+                "source1",
+                "dest1",
+                "checksum1".to_string(),
+                false,
+                None,
+                vec![],
+            ),
         );
         lockfile.upsert(
             "entry2".to_string(),
-            LockedEntry::new_filesystem("source2", "dest2", "checksum2".to_string(), false, None, vec![]),
+            LockedEntry::new_filesystem(
+                "source2",
+                "dest2",
+                "checksum2".to_string(),
+                false,
+                None,
+                vec![],
+            ),
         );
         lockfile.upsert(
             "entry3".to_string(),
-            LockedEntry::new_filesystem("source3", "dest3", "checksum3".to_string(), false, None, vec![]),
+            LockedEntry::new_filesystem(
+                "source3",
+                "dest3",
+                "checksum3".to_string(),
+                false,
+                None,
+                vec![],
+            ),
         );
 
         assert_eq!(lockfile.entries.len(), 3);
@@ -237,7 +258,14 @@ mod tests {
 
         lockfile.upsert(
             "entry1".to_string(),
-            LockedEntry::new_filesystem("source1", "dest1", "checksum1".to_string(), false, None, vec![]),
+            LockedEntry::new_filesystem(
+                "source1",
+                "dest1",
+                "checksum1".to_string(),
+                false,
+                None,
+                vec![],
+            ),
         );
 
         let removed = lockfile.retain_entries(&[]);
@@ -252,11 +280,25 @@ mod tests {
 
         lockfile.upsert(
             "entry1".to_string(),
-            LockedEntry::new_filesystem("source1", "dest1", "checksum1".to_string(), false, None, vec![]),
+            LockedEntry::new_filesystem(
+                "source1",
+                "dest1",
+                "checksum1".to_string(),
+                false,
+                None,
+                vec![],
+            ),
         );
         lockfile.upsert(
             "entry2".to_string(),
-            LockedEntry::new_filesystem("source2", "dest2", "checksum2".to_string(), false, None, vec![]),
+            LockedEntry::new_filesystem(
+                "source2",
+                "dest2",
+                "checksum2".to_string(),
+                false,
+                None,
+                vec![],
+            ),
         );
 
         let removed = lockfile.retain_entries(&["entry1", "entry2"]);
