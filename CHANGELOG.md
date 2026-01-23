@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.5](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.4...aps-v0.1.5) (2026-01-23)
+
+
+### Features
+
+* Add stale lockfile entry cleanup during full sync ([#37](https://github.com/westonplatter/agentic-prompt-sync/issues/37)) ([119c677](https://github.com/westonplatter/agentic-prompt-sync/commit/119c677dfeaa79f5de3d1217f25369de11a4a798))
+* Add support for composite AGENTS.md entries ([#38](https://github.com/westonplatter/agentic-prompt-sync/issues/38)) ([75dc0af](https://github.com/westonplatter/agentic-prompt-sync/commit/75dc0af811ae9fd78d46d5570591c34f2d62148f))
+
+
+### Bug Fixes
+
+* Preserve shell variables in filesystem source paths for lockfiles ([#39](https://github.com/westonplatter/agentic-prompt-sync/issues/39)) ([65da243](https://github.com/westonplatter/agentic-prompt-sync/commit/65da243b2cb4f3cde0a5e66504a5666587a7a214))
+
 ## [0.1.4](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.3...aps-v0.1.4) (2026-01-20)
 
 
