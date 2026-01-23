@@ -24,18 +24,30 @@ pub struct ResolvedSource {
     pub use_symlink: bool,
     /// Git-specific metadata (ref and commit SHA)
     pub git_info: Option<GitInfo>,
+    /// Original unexpanded root path (for filesystem sources, preserves shell variables like $HOME)
+    pub original_root: Option<String>,
+    /// Expanded root path (for filesystem sources, used for path substitution)
+    pub expanded_root: Option<String>,
     /// Holder to keep temp directories alive (for git sources)
     _temp_holder: Option<Box<dyn std::any::Any + Send + Sync>>,
 }
 
 impl ResolvedSource {
     /// Create a new ResolvedSource for filesystem sources
-    pub fn filesystem(source_path: PathBuf, source_display: String, use_symlink: bool) -> Self {
+    pub fn filesystem(
+        source_path: PathBuf,
+        source_display: String,
+        use_symlink: bool,
+        original_root: String,
+        expanded_root: String,
+    ) -> Self {
         Self {
             source_path,
             source_display,
             use_symlink,
             git_info: None,
+            original_root: Some(original_root),
+            expanded_root: Some(expanded_root),
             _temp_holder: None,
         }
     }
@@ -52,6 +64,8 @@ impl ResolvedSource {
             source_display,
             use_symlink: false, // Git sources always copy (temp dir)
             git_info: Some(git_info),
+            original_root: None,
+            expanded_root: None,
             _temp_holder: Some(Box::new(temp_holder)),
         }
     }
@@ -72,10 +86,18 @@ impl ResolvedSource {
                 checksum,
             )
         } else {
-            let target_path = if self.use_symlink {
-                Some(self.source_path.to_string_lossy().to_string())
+            // For filesystem sources, preserve shell variables in paths
+            let (target_path, transformed_items) = if self.use_symlink {
+                let target = self.preserve_shell_vars_in_path(
+                    &self.source_path.to_string_lossy(),
+                );
+                let items = symlinked_items
+                    .iter()
+                    .map(|item| self.preserve_shell_vars_in_path(item))
+                    .collect();
+                (Some(target), items)
             } else {
-                None
+                (None, symlinked_items)
             };
 
             LockedEntry::new_filesystem(
@@ -84,9 +106,25 @@ impl ResolvedSource {
                 checksum,
                 self.use_symlink,
                 target_path,
-                symlinked_items,
+                transformed_items,
             )
         }
+    }
+
+    /// Replace expanded root path with original root path to preserve shell variables
+    fn preserve_shell_vars_in_path(&self, expanded_path: &str) -> String {
+        if let (Some(ref original), Some(ref expanded)) =
+            (&self.original_root, &self.expanded_root)
+        {
+            if expanded_path.starts_with(expanded) {
+                return format!(
+                    "{}{}",
+                    original,
+                    &expanded_path[expanded.len()..]
+                );
+            }
+        }
+        expanded_path.to_string()
     }
 }
 
@@ -348,6 +386,8 @@ mod tests {
             PathBuf::from("/source/path"),
             "filesystem:./assets".to_string(),
             true,
+            "./assets".to_string(),
+            "/source/path".to_string(),
         );
 
         let locked = resolved.to_locked_entry(
@@ -360,9 +400,53 @@ mod tests {
         assert_eq!(locked.dest, "/dest/path");
         assert_eq!(locked.checksum, "abc123");
         assert!(locked.is_symlink);
-        assert_eq!(locked.target_path, Some("/source/path".to_string()));
+        assert_eq!(locked.target_path, Some("./assets".to_string()));
         assert!(locked.resolved_ref.is_none());
         assert!(locked.commit.is_none());
+        // Symlinked items should preserve shell variables (original path)
+        assert_eq!(locked.symlinked_items, vec!["./assets/file1".to_string()]);
+    }
+
+    #[test]
+    fn test_resolved_source_filesystem_preserves_shell_vars() {
+        // Test that shell variables like $HOME are preserved in lockfile paths
+        let resolved = ResolvedSource::filesystem(
+            PathBuf::from("/Users/weston/clients/masterpoint/internal-prompts/skills"),
+            "filesystem:$HOME/clients/masterpoint/internal-prompts".to_string(),
+            true,
+            "$HOME/clients/masterpoint/internal-prompts/skills".to_string(),
+            "/Users/weston/clients/masterpoint/internal-prompts/skills".to_string(),
+        );
+
+        let locked = resolved.to_locked_entry(
+            Path::new("/dest/skills"),
+            "checksum123".to_string(),
+            vec![
+                "/Users/weston/clients/masterpoint/internal-prompts/skills/trunk-check/SKILL.md"
+                    .to_string(),
+                "/Users/weston/clients/masterpoint/internal-prompts/skills/tf-security-scan/SKILL.md"
+                    .to_string(),
+            ],
+        );
+
+        assert_eq!(
+            locked.source,
+            "filesystem:$HOME/clients/masterpoint/internal-prompts"
+        );
+        assert_eq!(
+            locked.target_path,
+            Some("$HOME/clients/masterpoint/internal-prompts/skills".to_string())
+        );
+        // Symlinked items should have $HOME preserved
+        assert_eq!(
+            locked.symlinked_items,
+            vec![
+                "$HOME/clients/masterpoint/internal-prompts/skills/trunk-check/SKILL.md"
+                    .to_string(),
+                "$HOME/clients/masterpoint/internal-prompts/skills/tf-security-scan/SKILL.md"
+                    .to_string(),
+            ]
+        );
     }
 
     #[test]
