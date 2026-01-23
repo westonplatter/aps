@@ -1,6 +1,6 @@
 # Agentic Prompt Sync (aps)
 
-Use `aps` to compose and sync your own custom collection of agentic prompts/skills/etc. 
+Use `aps` to compose and sync your own custom collection of agentic prompts/skills/etc.
 
 ![Example of running ap sync](./docs/aps-example.png)
 
@@ -112,6 +112,16 @@ aps status
 - `--yes` - Non-interactive mode, automatically confirm overwrites
 - `--dry-run` - Preview changes without applying them
 - `--only <id>` - Only sync specific entry by ID
+
+### Sync Behavior
+
+When you run `aps sync`:
+
+1. **Entries are synced** - Each entry in `aps.yaml` is installed to its destination
+2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in `aps.yaml` are automatically removed
+3. **Lockfile is saved** - The updated lockfile is written to disk
+
+Note: Stale entry cleanup only happens during a full sync. When using `--only <id>` to sync specific entries, other lockfile entries are preserved.
 
 ## Configuration
 
@@ -238,6 +248,7 @@ cargo run -- --verbose sync
 ```
 
 ## Inspiration
+
 Built based on inspiration from these other projects,
 
 - rule-tool - https://github.com/circleci-petri/rule-tool/
