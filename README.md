@@ -202,6 +202,8 @@ The lockfile tracks installed assets and is automatically created/updated by `ap
 - Last update timestamp
 - Content checksum (SHA256)
 
+**Environment Variables Are Preserved**: Unlike other package managers (npm, uv, poetry, bundler) that expand environment variables to concrete paths, `aps` preserves shell variables like `$HOME` in the lockfile. This makes lockfiles portable across different machines and users who have the same relative directory structure.
+
 ## Examples
 
 ### Non-interactive sync for CI/CD
