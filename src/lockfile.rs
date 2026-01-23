@@ -175,6 +175,25 @@ impl Lockfile {
             .map(|c| c == commit_sha)
             .unwrap_or(false)
     }
+
+    /// Retain only entries with IDs in the given set, removing stale entries.
+    /// Returns the list of IDs that were removed.
+    pub fn retain_entries(&mut self, ids_to_keep: &[&str]) -> Vec<String> {
+        let ids_set: std::collections::HashSet<&str> = ids_to_keep.iter().copied().collect();
+        let removed: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|id| !ids_set.contains(id.as_str()))
+            .cloned()
+            .collect();
+
+        for id in &removed {
+            self.entries.remove(id);
+            debug!("Removed stale lockfile entry: {}", id);
+        }
+
+        removed
+    }
 }
 
 /// Display status information from the lockfile
@@ -212,5 +231,117 @@ pub fn display_status(lockfile: &Lockfile) {
         );
         println!("Checksum:     {}", entry.checksum);
         println!("{}", "-".repeat(80));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_retain_entries_removes_stale() {
+        let mut lockfile = Lockfile::new();
+
+        // Add entries
+        lockfile.upsert(
+            "entry1".to_string(),
+            LockedEntry::new_filesystem(
+                "source1",
+                "dest1",
+                "checksum1".to_string(),
+                false,
+                None,
+                vec![],
+            ),
+        );
+        lockfile.upsert(
+            "entry2".to_string(),
+            LockedEntry::new_filesystem(
+                "source2",
+                "dest2",
+                "checksum2".to_string(),
+                false,
+                None,
+                vec![],
+            ),
+        );
+        lockfile.upsert(
+            "entry3".to_string(),
+            LockedEntry::new_filesystem(
+                "source3",
+                "dest3",
+                "checksum3".to_string(),
+                false,
+                None,
+                vec![],
+            ),
+        );
+
+        assert_eq!(lockfile.entries.len(), 3);
+
+        // Retain only entry1 and entry3
+        let removed = lockfile.retain_entries(&["entry1", "entry3"]);
+
+        assert_eq!(removed.len(), 1);
+        assert!(removed.contains(&"entry2".to_string()));
+        assert_eq!(lockfile.entries.len(), 2);
+        assert!(lockfile.entries.contains_key("entry1"));
+        assert!(!lockfile.entries.contains_key("entry2"));
+        assert!(lockfile.entries.contains_key("entry3"));
+    }
+
+    #[test]
+    fn test_retain_entries_empty_keep_list() {
+        let mut lockfile = Lockfile::new();
+
+        lockfile.upsert(
+            "entry1".to_string(),
+            LockedEntry::new_filesystem(
+                "source1",
+                "dest1",
+                "checksum1".to_string(),
+                false,
+                None,
+                vec![],
+            ),
+        );
+
+        let removed = lockfile.retain_entries(&[]);
+
+        assert_eq!(removed.len(), 1);
+        assert!(lockfile.entries.is_empty());
+    }
+
+    #[test]
+    fn test_retain_entries_all_kept() {
+        let mut lockfile = Lockfile::new();
+
+        lockfile.upsert(
+            "entry1".to_string(),
+            LockedEntry::new_filesystem(
+                "source1",
+                "dest1",
+                "checksum1".to_string(),
+                false,
+                None,
+                vec![],
+            ),
+        );
+        lockfile.upsert(
+            "entry2".to_string(),
+            LockedEntry::new_filesystem(
+                "source2",
+                "dest2",
+                "checksum2".to_string(),
+                false,
+                None,
+                vec![],
+            ),
+        );
+
+        let removed = lockfile.retain_entries(&["entry1", "entry2"]);
+
+        assert!(removed.is_empty());
+        assert_eq!(lockfile.entries.len(), 2);
     }
 }

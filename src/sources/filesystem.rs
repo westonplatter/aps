@@ -55,15 +55,31 @@ impl SourceAdapter for FilesystemSource {
 
         // If path is ".", use root directly; otherwise join
         let source_path = if path == "." {
-            root_path
+            root_path.clone()
         } else {
             root_path.join(&path)
+        };
+
+        // Preserve original root (with shell variables) and expanded root
+        // for lockfile path transformation
+        let original_root = if path == "." {
+            self.root.clone()
+        } else {
+            format!("{}/{}", self.root, path)
+        };
+
+        let expanded_root_with_path = if path == "." {
+            root_path.to_string_lossy().to_string()
+        } else {
+            source_path.to_string_lossy().to_string()
         };
 
         Ok(ResolvedSource::filesystem(
             source_path,
             self.display_name(),
             self.symlink,
+            original_root,
+            expanded_root_with_path,
         ))
     }
 }
