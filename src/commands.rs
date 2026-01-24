@@ -225,8 +225,10 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
 
             // Add upgrade info message if available
             if let Some(ref upgrade_info) = r.upgrade_available {
-                let current_short = &upgrade_info.current_commit[..8.min(upgrade_info.current_commit.len())];
-                let available_short = &upgrade_info.available_commit[..8.min(upgrade_info.available_commit.len())];
+                let current_short =
+                    &upgrade_info.current_commit[..8.min(upgrade_info.current_commit.len())];
+                let available_short =
+                    &upgrade_info.available_commit[..8.min(upgrade_info.available_commit.len())];
                 item = item.with_message(format!("{} → {}", current_short, available_short));
             }
 

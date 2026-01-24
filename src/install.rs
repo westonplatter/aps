@@ -121,10 +121,8 @@ pub fn install_entry(
         let locked_entry = lockfile.entries.get(&entry.id);
 
         // Check if we should use the locked commit
-        let use_locked_commit = !options.upgrade
-            && locked_entry
-                .and_then(|e| e.commit.as_ref())
-                .is_some();
+        let use_locked_commit =
+            !options.upgrade && locked_entry.and_then(|e| e.commit.as_ref()).is_some();
 
         if use_locked_commit {
             let locked = locked_entry.unwrap();
