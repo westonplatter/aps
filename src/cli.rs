@@ -82,7 +82,7 @@ pub struct SyncArgs {
 
     /// Upgrade to latest versions from sources (ignore locked versions)
     ///
-    /// By default, `aps sync` respects locked versions from aps.manifest.lock.
+    /// By default, `aps sync` respects locked versions from aps.lock.yaml.
     /// Use --upgrade to fetch the latest versions and update the lockfile.
     #[arg(long, short = 'u')]
     pub upgrade: bool,

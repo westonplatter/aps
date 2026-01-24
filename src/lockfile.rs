@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// Default lockfile filename
-pub const LOCKFILE_NAME: &str = "aps.manifest.lock";
+pub const LOCKFILE_NAME: &str = "aps.lock.yaml";
+
+/// Legacy lockfile filename (for backward compatibility)
+const LEGACY_LOCKFILE_NAME: &str = "aps.manifest.lock";
 
 /// Source types for locked entries - supports both simple strings and composite structures
 #[derive(Debug, Clone, PartialEq)]
@@ -280,24 +283,57 @@ impl Lockfile {
     }
 
     /// Load a lockfile from disk
+    ///
+    /// Supports backward compatibility with legacy filename (aps.manifest.lock)
     pub fn load(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Err(ApsError::LockfileNotFound);
+        // Try loading from the provided path first (new filename)
+        if path.exists() {
+            let content = std::fs::read_to_string(path)
+                .map_err(|e| ApsError::io(e, format!("Failed to read lockfile at {:?}", path)))?;
+
+            let lockfile: Lockfile =
+                serde_yaml::from_str(&content).map_err(|e| ApsError::LockfileReadError {
+                    message: e.to_string(),
+                })?;
+
+            debug!("Loaded lockfile with {} entries", lockfile.entries.len());
+            return Ok(lockfile);
         }
 
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ApsError::io(e, format!("Failed to read lockfile at {:?}", path)))?;
+        // Fall back to legacy filename for backward compatibility
+        let legacy_path = path
+            .parent()
+            .map(|p| p.join(LEGACY_LOCKFILE_NAME))
+            .unwrap_or_else(|| PathBuf::from(LEGACY_LOCKFILE_NAME));
 
-        let lockfile: Lockfile =
-            serde_yaml::from_str(&content).map_err(|e| ApsError::LockfileReadError {
-                message: e.to_string(),
+        if legacy_path.exists() {
+            info!(
+                "Loading legacy lockfile '{}' (will be migrated to '{}' on next save)",
+                LEGACY_LOCKFILE_NAME, LOCKFILE_NAME
+            );
+
+            let content = std::fs::read_to_string(&legacy_path).map_err(|e| {
+                ApsError::io(e, format!("Failed to read lockfile at {:?}", legacy_path))
             })?;
 
-        debug!("Loaded lockfile with {} entries", lockfile.entries.len());
-        Ok(lockfile)
+            let lockfile: Lockfile =
+                serde_yaml::from_str(&content).map_err(|e| ApsError::LockfileReadError {
+                    message: e.to_string(),
+                })?;
+
+            debug!(
+                "Loaded legacy lockfile with {} entries",
+                lockfile.entries.len()
+            );
+            return Ok(lockfile);
+        }
+
+        Err(ApsError::LockfileNotFound)
     }
 
     /// Save the lockfile to disk
+    ///
+    /// Automatically migrates from legacy filename if it exists
     pub fn save(&self, path: &Path) -> Result<()> {
         let content = serde_yaml::to_string(self).map_err(|e| ApsError::LockfileReadError {
             message: format!("Failed to serialize lockfile: {}", e),
@@ -307,6 +343,30 @@ impl Lockfile {
             .map_err(|e| ApsError::io(e, format!("Failed to write lockfile at {:?}", path)))?;
 
         info!("Saved lockfile to {:?}", path);
+
+        // Automatic migration: Remove legacy lockfile if it exists
+        let legacy_path = path
+            .parent()
+            .map(|p| p.join(LEGACY_LOCKFILE_NAME))
+            .unwrap_or_else(|| PathBuf::from(LEGACY_LOCKFILE_NAME));
+
+        if legacy_path.exists() && legacy_path != path {
+            match std::fs::remove_file(&legacy_path) {
+                Ok(_) => {
+                    info!(
+                        "Migrated lockfile: removed legacy file '{}'",
+                        LEGACY_LOCKFILE_NAME
+                    );
+                }
+                Err(e) => {
+                    debug!(
+                        "Could not remove legacy lockfile '{}': {}",
+                        LEGACY_LOCKFILE_NAME, e
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 

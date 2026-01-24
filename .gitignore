@@ -4,6 +4,7 @@
 .aps-backups/
 aps.yaml
 aps.catalog.yaml
+aps.lock.yaml
 aps.manifest.lock
 
 AGENTS.md

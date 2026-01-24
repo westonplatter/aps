@@ -247,7 +247,7 @@ Key features:
 - **Order preserved**: Files are merged in the order specified in `sources`
 - **Auto-generated header**: Output includes a comment indicating it was composed by aps
 
-### Lockfile (`aps.manifest.lock`)
+### Lockfile (`aps.lock.yaml`)
 
 The lockfile tracks installed assets and is automatically created/updated by `aps sync`. **This file should be committed to version control** to ensure reproducible installations across your team. It stores:
 

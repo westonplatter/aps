@@ -132,7 +132,7 @@ fn sync_dry_run_does_not_create_lockfile() {
         .success();
 
     // Lockfile should not be created in dry-run mode
-    temp.child("aps.manifest.lock")
+    temp.child("aps.lock.yaml")
         .assert(predicate::path::missing());
 }
 
@@ -144,7 +144,7 @@ fn sync_creates_lockfile() {
 
     aps().arg("sync").current_dir(&temp).assert().success();
 
-    temp.child("aps.manifest.lock")
+    temp.child("aps.lock.yaml")
         .assert(predicate::path::exists());
 }
 
@@ -685,7 +685,7 @@ fn sync_composite_agents_md_from_git_sources() {
     agents_md.assert(predicate::str::contains("pandas").or(predicate::str::contains("Pandas")));
 
     // Verify lockfile was created with proper structure
-    let lockfile = temp.child("aps.manifest.lock");
+    let lockfile = temp.child("aps.lock.yaml");
     lockfile.assert(predicate::path::exists());
 
     // Verify the lockfile has composite structure (not a string)
@@ -760,7 +760,7 @@ fn sync_composite_agents_md_respects_locked_version() {
     aps().arg("sync").current_dir(&temp).assert().success();
 
     // Get the checksum from first sync
-    let lockfile_content = std::fs::read_to_string(temp.child("aps.manifest.lock").path()).unwrap();
+    let lockfile_content = std::fs::read_to_string(temp.child("aps.lock.yaml").path()).unwrap();
     let first_checksum = lockfile_content
         .lines()
         .find(|l| l.contains("checksum:"))
@@ -777,7 +777,7 @@ fn sync_composite_agents_md_respects_locked_version() {
 
     // Verify checksum hasn't changed
     let lockfile_content_after =
-        std::fs::read_to_string(temp.child("aps.manifest.lock").path()).unwrap();
+        std::fs::read_to_string(temp.child("aps.lock.yaml").path()).unwrap();
     let second_checksum = lockfile_content_after
         .lines()
         .find(|l| l.contains("checksum:"))
@@ -785,4 +785,41 @@ fn sync_composite_agents_md_respects_locked_version() {
         .to_string();
 
     assert_eq!(first_checksum, second_checksum);
+}
+
+#[test]
+fn lockfile_migration_from_legacy_name() {
+    // Test that the legacy lockfile name (aps.manifest.lock) is automatically
+    // migrated to the new name (aps.lock.yaml) when running sync
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create a manifest file
+    temp.child("aps.yaml").write_str("entries: []\n").unwrap();
+
+    // Create a legacy lockfile manually
+    let legacy_lockfile_content = r#"version: 1
+entries: {}
+"#;
+    temp.child("aps.manifest.lock")
+        .write_str(legacy_lockfile_content)
+        .unwrap();
+
+    // Verify legacy lockfile exists
+    temp.child("aps.manifest.lock")
+        .assert(predicate::path::exists());
+
+    // New lockfile should not exist yet
+    temp.child("aps.lock.yaml")
+        .assert(predicate::path::missing());
+
+    // Run sync - this should load the legacy lockfile and save as new name
+    aps().arg("sync").current_dir(&temp).assert().success();
+
+    // After sync, new lockfile should exist
+    temp.child("aps.lock.yaml")
+        .assert(predicate::path::exists());
+
+    // Legacy lockfile should be removed during migration
+    temp.child("aps.manifest.lock")
+        .assert(predicate::path::missing());
 }
