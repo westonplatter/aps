@@ -2,7 +2,7 @@
 
 # Agentic Prompt Sync (aps)
 
-**Compose and sync your own custom collection of agentic prompts/skills/etc.**
+**Compose and sync your own collection of AGENTS.md, Skills, and other agentic prompts.**
 
 [![CI](https://github.com/westonplatter/agentic-prompt-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/westonplatter/agentic-prompt-sync/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/aps?style=flat-square)](https://crates.io/crates/aps)
