@@ -321,7 +321,10 @@ impl Lockfile {
                     message: e.to_string(),
                 })?;
 
-            debug!("Loaded legacy lockfile with {} entries", lockfile.entries.len());
+            debug!(
+                "Loaded legacy lockfile with {} entries",
+                lockfile.entries.len()
+            );
             return Ok(lockfile);
         }
 

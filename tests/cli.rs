@@ -813,11 +813,7 @@ entries: {}
         .assert(predicate::path::missing());
 
     // Run sync - this should load the legacy lockfile and save as new name
-    aps()
-        .arg("sync")
-        .current_dir(&temp)
-        .assert()
-        .success();
+    aps().arg("sync").current_dir(&temp).assert().success();
 
     // After sync, new lockfile should exist
     temp.child("aps.lock.yaml")
