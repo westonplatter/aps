@@ -21,9 +21,9 @@
 `aps` is a manifest-driven, CLI tool for syncing agentic assets (Cursor rules, Agent Skills, and AGENTS.md files) from sources like git or your filesystem in your project folders.
 
 - **Declarative manifest-driven sync** - Define your agentic assets in a YAML manifest
+- **Composable AGENTS.md** - Merge multiple AGENTS.md files from local or remote sources into one
 - **Safe installs** - Automatic conflict detection and backup creation
 - **Deterministic lockfile** - Idempotent syncs that only update when needed
-- **Scriptable CLI** - Optional interactivity for CI/CD pipelines
 
 ## Installation
 
