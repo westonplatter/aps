@@ -162,6 +162,7 @@ pub fn expand_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lockfile::LockedSource;
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -389,7 +390,7 @@ mod tests {
             vec!["/source/path/file1".to_string()],
         );
 
-        assert_eq!(locked.source, "filesystem:./assets");
+        assert_eq!(locked.source, LockedSource::simple("filesystem:./assets"));
         assert_eq!(locked.dest, "/dest/path");
         assert_eq!(locked.checksum, "abc123");
         assert!(locked.is_symlink);
@@ -424,7 +425,7 @@ mod tests {
 
         assert_eq!(
             locked.source,
-            "filesystem:$HOME/clients/masterpoint/internal-prompts"
+            LockedSource::simple("filesystem:$HOME/clients/masterpoint/internal-prompts")
         );
         assert_eq!(
             locked.target_path,
@@ -462,7 +463,10 @@ mod tests {
         let locked =
             resolved.to_locked_entry(Path::new("/dest/path"), "checksum789".to_string(), vec![]);
 
-        assert_eq!(locked.source, "https://github.com/example/repo.git");
+        assert_eq!(
+            locked.source,
+            LockedSource::simple("https://github.com/example/repo.git")
+        );
         assert_eq!(locked.dest, "/dest/path");
         assert_eq!(locked.checksum, "checksum789");
         assert!(!locked.is_symlink);

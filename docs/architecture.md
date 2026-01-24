@@ -377,29 +377,29 @@ pub use http::HttpSource;
 
 ### Core Modules
 
-| Module | Lines | Purpose |
-|--------|-------|---------|
-| `main.rs` | ~56 | CLI entry point, logging setup, command dispatch |
-| `cli.rs` | ~124 | Argument parsing with clap derive macros |
-| `commands.rs` | ~479 | Command implementations (init, sync, validate, status, catalog) |
-| `manifest.rs` | ~400 | Manifest/Entry structures, YAML loading, Source enum |
-| `install.rs` | ~750 | Core installation logic (source-agnostic) |
-| `lockfile.rs` | ~300 | Lockfile management and persistence |
+| Module        | Lines | Purpose                                                         |
+| ------------- | ----- | --------------------------------------------------------------- |
+| `main.rs`     | ~56   | CLI entry point, logging setup, command dispatch                |
+| `cli.rs`      | ~124  | Argument parsing with clap derive macros                        |
+| `commands.rs` | ~479  | Command implementations (init, sync, validate, status, catalog) |
+| `manifest.rs` | ~400  | Manifest/Entry structures, YAML loading, Source enum            |
+| `install.rs`  | ~750  | Core installation logic (source-agnostic)                       |
+| `lockfile.rs` | ~300  | Lockfile management and persistence                             |
 
 ### Supporting Modules
 
-| Module | Lines | Purpose |
-|--------|-------|---------|
-| `sources/mod.rs` | ~250 | SourceAdapter trait, ResolvedSource, coordination |
-| `sources/filesystem.rs` | ~86 | FilesystemSource adapter implementation |
-| `sources/git.rs` | ~250 | GitSource adapter, git utilities, fast-path optimization |
-| `checksum.rs` | ~67 | SHA256 checksums for change detection |
-| `backup.rs` | ~160 | Backup creation and conflict handling |
-| `orphan.rs` | ~140 | Orphaned path detection and cleanup |
-| `catalog.rs` | ~400 | Asset catalog generation |
-| `compose.rs` | ~230 | Markdown composition for composite entries |
-| `sync_output.rs` | ~250 | Styled CLI output with console crate |
-| `error.rs` | ~153 | Error types with miette diagnostics |
+| Module                  | Lines | Purpose                                                  |
+| ----------------------- | ----- | -------------------------------------------------------- |
+| `sources/mod.rs`        | ~250  | SourceAdapter trait, ResolvedSource, coordination        |
+| `sources/filesystem.rs` | ~86   | FilesystemSource adapter implementation                  |
+| `sources/git.rs`        | ~250  | GitSource adapter, git utilities, fast-path optimization |
+| `checksum.rs`           | ~67   | SHA256 checksums for change detection                    |
+| `backup.rs`             | ~160  | Backup creation and conflict handling                    |
+| `orphan.rs`             | ~140  | Orphaned path detection and cleanup                      |
+| `catalog.rs`            | ~400  | Asset catalog generation                                 |
+| `compose.rs`            | ~230  | Markdown composition for composite entries               |
+| `sync_output.rs`        | ~250  | Styled CLI output with console crate                     |
+| `error.rs`              | ~153  | Error types with miette diagnostics                      |
 
 ## Error Handling Strategy
 
@@ -451,22 +451,22 @@ This produces formatted, colored output with error codes and actionable help tex
 
 ## Dependencies & Technology Stack
 
-| Category | Crate | Version | Purpose |
-|----------|-------|---------|---------|
-| **CLI** | `clap` | 4 | Argument parsing with derive macros |
-| **Interactive** | `dialoguer` | 0.11 | User prompts and confirmations |
-| **Terminal** | `console` | 0.15 | Colored output and styling |
-| **Errors** | `thiserror` | 1 | Error type derivation |
-| **Diagnostics** | `miette` | 7 | Rich error display with help text |
-| **Logging** | `tracing` | 0.1 | Structured logging |
-| **Log Filter** | `tracing-subscriber` | 0.3 | Log level filtering |
-| **Serialization** | `serde` | 1 | Serialize/deserialize traits |
-| **YAML** | `serde_yaml` | 0.9 | YAML parsing |
-| **Timestamps** | `chrono` | 0.4 | Date/time for lockfile |
-| **Checksums** | `sha2`, `hex` | 0.10, 0.4 | SHA256 computation |
-| **File Walking** | `walkdir` | 2 | Recursive directory traversal |
-| **Temp Files** | `tempfile` | 3 | Temporary directories for git |
-| **Shell Expand** | `shellexpand` | 3 | $HOME, ~ variable expansion |
+| Category          | Crate                | Version   | Purpose                             |
+| ----------------- | -------------------- | --------- | ----------------------------------- |
+| **CLI**           | `clap`               | 4         | Argument parsing with derive macros |
+| **Interactive**   | `dialoguer`          | 0.11      | User prompts and confirmations      |
+| **Terminal**      | `console`            | 0.15      | Colored output and styling          |
+| **Errors**        | `thiserror`          | 1         | Error type derivation               |
+| **Diagnostics**   | `miette`             | 7         | Rich error display with help text   |
+| **Logging**       | `tracing`            | 0.1       | Structured logging                  |
+| **Log Filter**    | `tracing-subscriber` | 0.3       | Log level filtering                 |
+| **Serialization** | `serde`              | 1         | Serialize/deserialize traits        |
+| **YAML**          | `serde_yaml`         | 0.9       | YAML parsing                        |
+| **Timestamps**    | `chrono`             | 0.4       | Date/time for lockfile              |
+| **Checksums**     | `sha2`, `hex`        | 0.10, 0.4 | SHA256 computation                  |
+| **File Walking**  | `walkdir`            | 2         | Recursive directory traversal       |
+| **Temp Files**    | `tempfile`           | 3         | Temporary directories for git       |
+| **Shell Expand**  | `shellexpand`        | 3         | $HOME, ~ variable expansion         |
 
 ## Testing Strategy
 

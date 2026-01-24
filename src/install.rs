@@ -460,20 +460,11 @@ pub fn install_composite_entry(
         println!("[dry-run] Would write composed file to {:?}", dest_path);
     }
 
-    // Create locked entry
-    let source_paths: Vec<String> = composed_sources
-        .iter()
-        .map(|s| s.path.to_string_lossy().to_string())
-        .collect();
+    // Create locked entry with original source paths (preserving shell variables like $HOME)
+    let source_paths: Vec<String> = entry.sources.iter().map(|s| s.display_path()).collect();
 
-    let locked_entry = LockedEntry::new_filesystem(
-        &format!("composite: [{}]", source_paths.join(", ")),
-        &dest_path.to_string_lossy(),
-        checksum,
-        false,      // not a symlink
-        None,       // no target path
-        Vec::new(), // no symlinked items
-    );
+    let locked_entry =
+        LockedEntry::new_composite(source_paths, &dest_path.to_string_lossy(), checksum);
 
     Ok(InstallResult {
         id: entry.id.clone(),

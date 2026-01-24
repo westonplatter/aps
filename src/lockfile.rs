@@ -1,12 +1,153 @@
 use crate::error::{ApsError, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// Default lockfile filename
 pub const LOCKFILE_NAME: &str = "aps.manifest.lock";
+
+/// Source types for locked entries - supports both simple strings and composite structures
+#[derive(Debug, Clone, PartialEq)]
+pub enum LockedSource {
+    /// Simple source (git URL, filesystem path)
+    Simple(String),
+    /// Composite source (multiple files merged into one)
+    Composite(Vec<String>),
+}
+
+impl LockedSource {
+    /// Create a simple source
+    pub fn simple(s: impl Into<String>) -> Self {
+        LockedSource::Simple(s.into())
+    }
+
+    /// Create a composite source from multiple paths
+    pub fn composite(sources: Vec<String>) -> Self {
+        LockedSource::Composite(sources)
+    }
+
+    /// Check if this is a composite source
+    #[allow(dead_code)]
+    pub fn is_composite(&self) -> bool {
+        matches!(self, LockedSource::Composite(_))
+    }
+}
+
+impl fmt::Display for LockedSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LockedSource::Simple(s) => write!(f, "{}", s),
+            LockedSource::Composite(sources) => {
+                write!(f, "composite: [")?;
+                for (i, s) in sources.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", s)?;
+                }
+                write!(f, "]")
+            }
+        }
+    }
+}
+
+impl Serialize for LockedSource {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            LockedSource::Simple(s) => serializer.serialize_str(s),
+            LockedSource::Composite(sources) => {
+                use serde::ser::SerializeMap;
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("composite", sources)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LockedSource {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{MapAccess, Visitor};
+
+        struct LockedSourceVisitor;
+
+        impl<'de> Visitor<'de> for LockedSourceVisitor {
+            type Value = LockedSource;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or a map with 'composite' key")
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<LockedSource, E>
+            where
+                E: serde::de::Error,
+            {
+                // Handle legacy format: "composite: [path1, path2, ...]" as a string
+                if value.starts_with("composite:") {
+                    // Try to parse the legacy format
+                    let rest = value.trim_start_matches("composite:").trim();
+                    if rest.starts_with('[') && rest.ends_with(']') {
+                        let inner = &rest[1..rest.len() - 1];
+                        let sources: Vec<String> =
+                            inner.split(", ").map(|s| s.trim().to_string()).collect();
+                        return Ok(LockedSource::Composite(sources));
+                    }
+                    // Handle multiline format (legacy)
+                    if rest.starts_with('\n') || rest.is_empty() {
+                        let sources: Vec<String> = value
+                            .lines()
+                            .skip(1) // Skip "composite:"
+                            .filter_map(|line| {
+                                let trimmed = line.trim();
+                                if trimmed.starts_with('-') {
+                                    Some(trimmed.trim_start_matches('-').trim().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        if !sources.is_empty() {
+                            return Ok(LockedSource::Composite(sources));
+                        }
+                    }
+                }
+                Ok(LockedSource::Simple(value.to_string()))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> std::result::Result<LockedSource, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut composite: Option<Vec<String>> = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "composite" {
+                        composite = Some(map.next_value()?);
+                    } else {
+                        // Skip unknown keys
+                        let _: serde::de::IgnoredAny = map.next_value()?;
+                    }
+                }
+
+                match composite {
+                    Some(sources) => Ok(LockedSource::Composite(sources)),
+                    None => Err(serde::de::Error::missing_field("composite")),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(LockedSourceVisitor)
+    }
+}
 
 /// The lockfile structure
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -27,8 +168,8 @@ fn default_version() -> u32 {
 /// A locked entry with installation metadata
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LockedEntry {
-    /// Source description
-    pub source: String,
+    /// Source description (simple string or composite structure)
+    pub source: LockedSource,
 
     /// Destination path
     pub dest: String,
@@ -71,7 +212,7 @@ impl LockedEntry {
         symlinked_items: Vec<String>,
     ) -> Self {
         Self {
-            source: source.to_string(),
+            source: LockedSource::simple(source),
             dest: dest.to_string(),
             resolved_ref: None,
             commit: None,
@@ -93,10 +234,25 @@ impl LockedEntry {
         checksum: String,
     ) -> Self {
         Self {
-            source: source.to_string(),
+            source: LockedSource::simple(source),
             dest: dest.to_string(),
             resolved_ref: Some(resolved_ref),
             commit: Some(commit),
+            last_updated_at: Utc::now(),
+            checksum,
+            is_symlink: false,
+            target_path: None,
+            symlinked_items: Vec::new(),
+        }
+    }
+
+    /// Create a new locked entry for a composite source (multiple files merged)
+    pub fn new_composite(sources: Vec<String>, dest: &str, checksum: String) -> Self {
+        Self {
+            source: LockedSource::composite(sources),
+            dest: dest.to_string(),
+            resolved_ref: None,
+            commit: None,
             last_updated_at: Utc::now(),
             checksum,
             is_symlink: false,
@@ -208,7 +364,15 @@ pub fn display_status(lockfile: &Lockfile) {
 
     for (id, entry) in &lockfile.entries {
         println!("ID:           {}", id);
-        println!("Source:       {}", entry.source);
+        match &entry.source {
+            LockedSource::Simple(s) => println!("Source:       {}", s),
+            LockedSource::Composite(sources) => {
+                println!("Source:       composite");
+                for s in sources {
+                    println!("              - {}", s);
+                }
+            }
+        }
         println!("Destination:  {}", entry.dest);
         if let Some(ref resolved_ref) = entry.resolved_ref {
             println!("Ref:          {}", resolved_ref);
