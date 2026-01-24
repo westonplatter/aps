@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.6...aps-v0.1.7) (2026-01-24)
+
+
+### Features
+
+* Rename lockfile from aps.manifest.lock to aps.lock.yaml ([#48](https://github.com/westonplatter/agentic-prompt-sync/issues/48)) ([437ef71](https://github.com/westonplatter/agentic-prompt-sync/commit/437ef710d073a6d0d3514bf51401021063430d03))
+
 ## [0.1.6](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.5...aps-v0.1.6) (2026-01-24)
 
 
