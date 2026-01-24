@@ -48,3 +48,9 @@ tempfile = "3"
 
 # Shell variable expansion
 shellexpand = "3"
+
+[dev-dependencies]
+# Integration testing for CLI
+assert_cmd = "2"
+assert_fs = "1"
+predicates = "3"

@@ -34,6 +34,49 @@ pub struct InstallOptions {
     pub upgrade: bool,
 }
 
+/// Handle conflict detection and resolution for a destination path.
+/// Returns Ok(true) if installation should proceed, Ok(false) if dry-run mode.
+/// Returns Err if user declines or non-interactive mode without --yes.
+fn handle_conflict(
+    dest_path: &Path,
+    manifest_dir: &Path,
+    options: &InstallOptions,
+) -> Result<bool> {
+    if !has_conflict(dest_path) {
+        return Ok(true);
+    }
+
+    info!("Conflict detected at {:?}", dest_path);
+
+    if options.dry_run {
+        println!("[dry-run] Would backup and overwrite: {:?}", dest_path);
+        return Ok(false);
+    }
+
+    let should_overwrite = if options.yes {
+        true
+    } else if std::io::stdin().is_terminal() {
+        Confirm::new()
+            .with_prompt(format!("Overwrite existing content at {:?}?", dest_path))
+            .default(false)
+            .interact()
+            .map_err(|_| ApsError::Cancelled)?
+    } else {
+        return Err(ApsError::RequiresYesFlag);
+    };
+
+    if !should_overwrite {
+        info!("User declined to overwrite {:?}", dest_path);
+        return Err(ApsError::Cancelled);
+    }
+
+    // Create backup
+    let backup_path = create_backup(manifest_dir, dest_path)?;
+    println!("Created backup at: {:?}", backup_path);
+
+    Ok(true)
+}
+
 /// Result of an install operation
 pub struct InstallResult {
     pub id: String,
@@ -293,35 +336,10 @@ pub fn install_entry(
         }
     };
 
-    if should_check_conflict && has_conflict(&dest_path) {
-        info!("Conflict detected at {:?}", dest_path);
-
-        if options.dry_run {
-            println!("[dry-run] Would backup and overwrite: {:?}", dest_path);
-        } else {
-            // Handle conflict
-            let should_overwrite = if options.yes {
-                true
-            } else if std::io::stdin().is_terminal() {
-                // Interactive prompt
-                Confirm::new()
-                    .with_prompt(format!("Overwrite existing content at {:?}?", dest_path))
-                    .default(false)
-                    .interact()
-                    .map_err(|_| ApsError::Cancelled)?
-            } else {
-                // Non-interactive without --yes
-                return Err(ApsError::RequiresYesFlag);
-            };
-
-            if !should_overwrite {
-                info!("User declined to overwrite {:?}", dest_path);
-                return Err(ApsError::Cancelled);
-            }
-
-            // Create backup
-            let backup_path = create_backup(manifest_dir, &dest_path)?;
-            println!("Created backup at: {:?}", backup_path);
+    if should_check_conflict {
+        let should_proceed = handle_conflict(&dest_path, manifest_dir, options)?;
+        if !should_proceed {
+            // dry-run mode, skip actual installation but continue
         }
     }
 
@@ -433,35 +451,8 @@ pub fn install_composite_entry(
         });
     }
 
-    // Check for conflicts
-    if has_conflict(&dest_path) {
-        info!("Conflict detected at {:?}", dest_path);
-
-        if options.dry_run {
-            println!("[dry-run] Would backup and overwrite: {:?}", dest_path);
-        } else {
-            let should_overwrite = if options.yes {
-                true
-            } else if std::io::stdin().is_terminal() {
-                Confirm::new()
-                    .with_prompt(format!("Overwrite existing content at {:?}?", dest_path))
-                    .default(false)
-                    .interact()
-                    .map_err(|_| ApsError::Cancelled)?
-            } else {
-                return Err(ApsError::RequiresYesFlag);
-            };
-
-            if !should_overwrite {
-                info!("User declined to overwrite {:?}", dest_path);
-                return Err(ApsError::Cancelled);
-            }
-
-            // Create backup
-            let backup_path = create_backup(manifest_dir, &dest_path)?;
-            println!("Created backup at: {:?}", backup_path);
-        }
-    }
+    // Check for conflicts and handle backup if needed
+    handle_conflict(&dest_path, manifest_dir, options)?;
 
     // Write the composed file
     if !options.dry_run {

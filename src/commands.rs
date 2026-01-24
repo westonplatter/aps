@@ -17,9 +17,12 @@ use tracing::info;
 
 /// Execute the `aps init` command
 pub fn cmd_init(args: InitArgs) -> Result<()> {
-    let manifest_path = args
-        .manifest
-        .unwrap_or_else(|| std::env::current_dir().unwrap().join(DEFAULT_MANIFEST_NAME));
+    let manifest_path = match args.manifest {
+        Some(p) => p,
+        None => std::env::current_dir()
+            .map_err(|e| ApsError::io(e, "Failed to get current directory"))?
+            .join(DEFAULT_MANIFEST_NAME),
+    };
 
     // Check if manifest already exists
     if manifest_path.exists() {
@@ -33,7 +36,9 @@ pub fn cmd_init(args: InitArgs) -> Result<()> {
 
     let content = match args.format {
         ManifestFormat::Yaml => {
-            serde_yaml::to_string(&manifest).expect("Failed to serialize manifest")
+            serde_yaml::to_string(&manifest).map_err(|e| ApsError::ManifestParseError {
+                message: format!("Failed to serialize manifest: {}", e),
+            })?
         }
         ManifestFormat::Toml => {
             // For TOML, we'd need a different serializer, but YAML is default

@@ -372,3 +372,165 @@ pub use http::HttpSource;
 | **Temporary Directory Holder** | Safely manages git clone lifecycle (cleanup on drop)                            |
 | **Orphan Detection**           | Prevents accumulation of stale installations when manifests change              |
 | **Backup Before Overwrite**    | Safe conflict resolution without data loss                                      |
+
+## Module Documentation
+
+### Core Modules
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `main.rs` | ~56 | CLI entry point, logging setup, command dispatch |
+| `cli.rs` | ~124 | Argument parsing with clap derive macros |
+| `commands.rs` | ~479 | Command implementations (init, sync, validate, status, catalog) |
+| `manifest.rs` | ~400 | Manifest/Entry structures, YAML loading, Source enum |
+| `install.rs` | ~750 | Core installation logic (source-agnostic) |
+| `lockfile.rs` | ~300 | Lockfile management and persistence |
+
+### Supporting Modules
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `sources/mod.rs` | ~250 | SourceAdapter trait, ResolvedSource, coordination |
+| `sources/filesystem.rs` | ~86 | FilesystemSource adapter implementation |
+| `sources/git.rs` | ~250 | GitSource adapter, git utilities, fast-path optimization |
+| `checksum.rs` | ~67 | SHA256 checksums for change detection |
+| `backup.rs` | ~160 | Backup creation and conflict handling |
+| `orphan.rs` | ~140 | Orphaned path detection and cleanup |
+| `catalog.rs` | ~400 | Asset catalog generation |
+| `compose.rs` | ~230 | Markdown composition for composite entries |
+| `sync_output.rs` | ~250 | Styled CLI output with console crate |
+| `error.rs` | ~153 | Error types with miette diagnostics |
+
+## Error Handling Strategy
+
+APS uses a layered error handling approach combining `thiserror` and `miette`:
+
+### Error Categories
+
+```rust
+// src/error.rs
+pub enum ApsError {
+    // Manifest errors
+    ManifestNotFound,
+    ManifestAlreadyExists { path: PathBuf },
+    ManifestParseError { message: String },
+
+    // Source errors
+    SourcePathNotFound { path: PathBuf },
+    GitError { message: String },
+    GitRefNotFound { refs: Vec<String> },
+
+    // Installation errors
+    Conflict { path: PathBuf },
+    RequiresYesFlag,
+    MissingSkillMd { skill_name: String },
+
+    // Lockfile/Catalog errors
+    LockfileReadError { message: String },
+    CatalogNotFound,
+
+    // I/O errors with context
+    Io { message: String, source: std::io::Error },
+}
+```
+
+### Rich Diagnostics
+
+Each error variant uses miette's `#[diagnostic]` derive for user-friendly output:
+
+```rust
+#[error("Manifest not found")]
+#[diagnostic(
+    code(aps::manifest::not_found),
+    help("Run `aps init` to create a manifest, or use `--manifest <path>` to specify one")
+)]
+ManifestNotFound,
+```
+
+This produces formatted, colored output with error codes and actionable help text.
+
+## Dependencies & Technology Stack
+
+| Category | Crate | Version | Purpose |
+|----------|-------|---------|---------|
+| **CLI** | `clap` | 4 | Argument parsing with derive macros |
+| **Interactive** | `dialoguer` | 0.11 | User prompts and confirmations |
+| **Terminal** | `console` | 0.15 | Colored output and styling |
+| **Errors** | `thiserror` | 1 | Error type derivation |
+| **Diagnostics** | `miette` | 7 | Rich error display with help text |
+| **Logging** | `tracing` | 0.1 | Structured logging |
+| **Log Filter** | `tracing-subscriber` | 0.3 | Log level filtering |
+| **Serialization** | `serde` | 1 | Serialize/deserialize traits |
+| **YAML** | `serde_yaml` | 0.9 | YAML parsing |
+| **Timestamps** | `chrono` | 0.4 | Date/time for lockfile |
+| **Checksums** | `sha2`, `hex` | 0.10, 0.4 | SHA256 computation |
+| **File Walking** | `walkdir` | 2 | Recursive directory traversal |
+| **Temp Files** | `tempfile` | 3 | Temporary directories for git |
+| **Shell Expand** | `shellexpand` | 3 | $HOME, ~ variable expansion |
+
+## Testing Strategy
+
+### Current Test Coverage
+
+Tests are primarily located within modules using Rust's inline `#[cfg(test)]` convention:
+
+- **`sources/mod.rs`**: Comprehensive tests for path expansion, adapter behavior
+- **`compose.rs`**: Markdown composition tests with temp directories
+- **`backup.rs`**: Conflict detection and backup creation tests
+
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run specific module tests
+cargo test sources::tests
+```
+
+### Test Patterns Used
+
+1. **Temp Directory Fixtures**: Uses `tempfile::TempDir` for isolated filesystem tests
+2. **Environment Variable Tests**: Sets/unsets vars for shell expansion tests
+3. **Unit Tests in Modules**: Tests colocated with implementation
+
+## Configuration Patterns
+
+### Manifest Discovery
+
+APS walks up the directory tree to find `aps.yaml`, similar to how git finds `.git`:
+
+```rust
+fn discover_manifest(start_dir: &Path) -> Option<PathBuf> {
+    let mut current = start_dir.to_path_buf();
+    loop {
+        let candidate = current.join("aps.yaml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+```
+
+### Lockfile Schema
+
+Version 1 lockfile format:
+
+```yaml
+version: 1
+entries:
+  entry-id:
+    source: "git:https://github.com/..."
+    dest: "./.cursor/rules/"
+    resolved_ref: "main"
+    commit: "abc123..."
+    checksum: "sha256:..."
+    is_symlink: false
+    last_updated_at: "2024-01-15T10:30:00Z"
+```
