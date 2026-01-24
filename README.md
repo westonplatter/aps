@@ -293,7 +293,7 @@ cargo run -- --verbose sync
 
 Built based on inspiration from these other projects,
 
-- rule-tool - https://github.com/circleci-petri/rule-tool/
+- [rule-tool](https://github.com/circleci-petri/rule-tool/)
 
 ## License
 

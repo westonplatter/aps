@@ -244,8 +244,9 @@ pub fn print_sync_summary(
     // Print upgrade hint if there are upgradable entries
     if upgradable_count > 0 {
         println!(
-            "\n{}",
-            dim.apply_to("Run `aps sync --upgrade` to update to latest versions.")
+            "\n{} {}",
+            orange.apply_to("↑"),
+            orange.apply_to("Run `aps sync --upgrade` to update to latest versions.")
         );
     }
 }

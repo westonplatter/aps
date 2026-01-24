@@ -386,7 +386,7 @@ pub use http::HttpSource;
 | `install.rs`  | ~750  | Core installation logic (source-agnostic)                       |
 | `lockfile.rs` | ~300  | Lockfile management and persistence                             |
 
-### Supporting Modules
+### Supporting Modules Summary
 
 | Module                  | Lines | Purpose                                                  |
 | ----------------------- | ----- | -------------------------------------------------------- |
