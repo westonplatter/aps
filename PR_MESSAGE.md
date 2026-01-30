@@ -17,12 +17,11 @@ I extended the already existing pipeline to support this functionality with new 
 
 **Implementation Details:**
 
-- Added `cursor_hooks` and `claude_hooks` as first-class `AssetKind`s, mirroring the directory-copy behavior of `cursor_rules`.
-- Implemented a post-installation step that recursively applies `chmod +x` to all `.sh` files in the destination directory, ensuring hooks work immediately out of the box.
-- Added a validation layer (`src/hooks.rs`) that verifies the expected project structure:
-  - For Cursor: Checks for `.cursor/hooks.json` and ensures referenced scripts exist.
-  - For Claude: Checks for `.claude/settings.json`, parses the `hooks` section, and validates script paths.
-- Updated the catalog generation to enumerate individual hook scripts.
+- **Smart Syncing**: Hooks are installed using a merge strategy that preserves existing files in `.cursor/` or `.claude/` directories (like extensions or other configs), only overwriting the specific hook scripts and configuration.
+- **Config Management**: Automatically syncs the associated configuration file (`.cursor/hooks.json` or `.claude/settings.json`) from the source alongside the hooks directory.
+- **Executable Permissions**: Post-installation step recursively applies `chmod +x` to all `.sh` files, ensuring hooks work immediately.
+- **Validation**: Enforces correct structure where configuration files reside in the parent directory of the hooks folder, and verifies referenced scripts exist.
+- **Catalog**: Updated generation to enumerate individual hook scripts.
 
 ## 🤖 Copilot Rule convert
 
