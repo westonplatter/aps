@@ -361,6 +361,333 @@ fn sync_with_symlink_creates_symlink() {
 }
 
 // ============================================================================
+// Hooks Tests
+// ============================================================================
+
+#[test]
+fn sync_cursor_hooks_copies_directory_and_sets_exec() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source = temp.child("source");
+    source.create_dir_all().unwrap();
+    source.child(".cursor").create_dir_all().unwrap();
+    source
+        .child(".cursor/scripts/hello.sh")
+        .write_str("echo hello\n")
+        .unwrap();
+    source
+        .child(".cursor/scripts/nested")
+        .create_dir_all()
+        .unwrap();
+    source
+        .child(".cursor/scripts/nested/inner.sh")
+        .write_str("echo inner\n")
+        .unwrap();
+    source
+        .child(".cursor/hooks.json")
+        .write_str(
+            r#"{
+  "hooks": {
+    "onStart": [
+      { "command": "bash .cursor/scripts/hello.sh" },
+      { "command": "bash .cursor/scripts/nested/inner.sh" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: cursor-hooks
+    kind: cursor_hooks
+    source:
+      type: filesystem
+      root: {}
+      path: .cursor
+      symlink: false
+    dest: ./.cursor
+"#,
+        source.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    aps().arg("sync").current_dir(&project).assert().success();
+
+    project
+        .child(".cursor/scripts/hello.sh")
+        .assert(predicate::path::exists());
+    project
+        .child(".cursor/scripts/nested/inner.sh")
+        .assert(predicate::path::exists());
+    // Verify config is also synced to parent dir
+    project
+        .child(".cursor/hooks.json")
+        .assert(predicate::path::exists());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(project.path().join(".cursor/scripts/hello.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o100, 0);
+        let nested_mode = std::fs::metadata(project.path().join(".cursor/scripts/nested/inner.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(nested_mode & 0o100, 0);
+    }
+}
+
+#[test]
+fn sync_claude_hooks_copies_directory_and_sets_exec() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source = temp.child("source");
+    source.create_dir_all().unwrap();
+    source.child(".claude").create_dir_all().unwrap();
+    source
+        .child(".claude/scripts/start.sh")
+        .write_str("echo start\n")
+        .unwrap();
+    source
+        .child(".claude/settings.json")
+        .write_str(
+            r#"{
+  "hooks": {
+    "onSessionStart": [
+      { "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/start.sh" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: claude-hooks
+    kind: claude_hooks
+    source:
+      type: filesystem
+      root: {}
+      path: .claude
+      symlink: false
+    dest: ./.claude
+"#,
+        source.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    aps().arg("sync").current_dir(&project).assert().success();
+
+    project
+        .child(".claude/scripts/start.sh")
+        .assert(predicate::path::exists());
+    // Verify config is also synced to parent dir
+    project
+        .child(".claude/settings.json")
+        .assert(predicate::path::exists());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(project.path().join(".claude/scripts/start.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o100, 0);
+    }
+}
+
+#[test]
+fn validate_cursor_hooks_strict_rejects_missing_config() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source = temp.child("source");
+    source.create_dir_all().unwrap();
+    source.child(".cursor").create_dir_all().unwrap();
+    source
+        .child(".cursor/scripts/hello.sh")
+        .write_str("echo hello\n")
+        .unwrap();
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: cursor-hooks
+    kind: cursor_hooks
+    source:
+      type: filesystem
+      root: {}
+      path: .cursor
+      symlink: false
+    dest: ./.cursor
+"#,
+        source.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    aps()
+        .args(["validate", "--strict"])
+        .current_dir(&project)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("hooks.json"));
+}
+
+#[test]
+fn validate_claude_hooks_strict_rejects_missing_config() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source = temp.child("source");
+    source.create_dir_all().unwrap();
+    source.child(".claude").create_dir_all().unwrap();
+    source
+        .child(".claude/scripts/start.sh")
+        .write_str("echo start\n")
+        .unwrap();
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: claude-hooks
+    kind: claude_hooks
+    source:
+      type: filesystem
+      root: {}
+      path: .claude
+      symlink: false
+    dest: ./.claude
+"#,
+        source.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    aps()
+        .args(["validate", "--strict"])
+        .current_dir(&project)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("settings.json"));
+}
+
+#[test]
+fn validate_cursor_hooks_strict_accepts_valid() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source = temp.child("source");
+    source.create_dir_all().unwrap();
+    source.child(".cursor").create_dir_all().unwrap();
+    source
+        .child(".cursor/scripts/hello.sh")
+        .write_str("echo hello\n")
+        .unwrap();
+    source
+        .child(".cursor/hooks.json")
+        .write_str(
+            r#"{
+  "hooks": {
+    "onStart": [
+      { "command": "bash .cursor/scripts/hello.sh" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: cursor-hooks
+    kind: cursor_hooks
+    source:
+      type: filesystem
+      root: {}
+      path: .cursor
+      symlink: false
+    dest: ./.cursor
+"#,
+        source.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    aps()
+        .args(["validate", "--strict"])
+        .current_dir(&project)
+        .assert()
+        .success();
+}
+
+#[test]
+fn validate_claude_hooks_strict_accepts_valid() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source = temp.child("source");
+    source.create_dir_all().unwrap();
+    source.child(".claude").create_dir_all().unwrap();
+    source
+        .child(".claude/scripts/start.sh")
+        .write_str("echo start\n")
+        .unwrap();
+    source
+        .child(".claude/settings.json")
+        .write_str(
+            r#"{
+  "hooks": {
+    "onSessionStart": [
+      { "command": "bash .claude/scripts/start.sh" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: claude-hooks
+    kind: claude_hooks
+    source:
+      type: filesystem
+      root: {}
+      path: .claude
+      symlink: false
+    dest: ./.claude
+"#,
+        source.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    aps()
+        .args(["validate", "--strict"])
+        .current_dir(&project)
+        .assert()
+        .success();
+}
+
+// ============================================================================
 // Verbose Flag Tests
 // ============================================================================
 
