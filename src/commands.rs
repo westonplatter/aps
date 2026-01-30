@@ -10,6 +10,7 @@ use crate::manifest::{
     discover_manifest, manifest_dir, validate_manifest, AssetKind, Manifest, DEFAULT_MANIFEST_NAME,
 };
 use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
+use crate::sources::GitCloneCache;
 use crate::sync_output::{print_sync_results, print_sync_summary, SyncDisplayItem, SyncStatus};
 use std::fs;
 use std::io::Write;
@@ -150,6 +151,7 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
         strict: args.strict,
         upgrade: args.upgrade,
     };
+    let mut git_cache = GitCloneCache::new();
 
     // Detect orphaned paths (destinations that changed)
     let orphans = detect_orphaned_paths(&entries_to_install, &lockfile, &base_dir);
@@ -159,9 +161,9 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     for entry in &entries_to_install {
         // Use composite install for composite entries, regular install otherwise
         let result = if entry.is_composite() {
-            install_composite_entry(entry, &base_dir, &lockfile, &options)?
+            install_composite_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)?
         } else {
-            install_entry(entry, &base_dir, &lockfile, &options)?
+            install_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)?
         };
         results.push(result);
     }

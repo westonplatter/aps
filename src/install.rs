@@ -7,7 +7,10 @@ use crate::error::{ApsError, Result};
 use crate::hooks::{validate_claude_hooks, validate_cursor_hooks};
 use crate::lockfile::{LockedEntry, Lockfile};
 use crate::manifest::{AssetKind, Entry};
-use crate::sources::{clone_at_commit, get_remote_commit_sha, GitInfo, ResolvedSource};
+use crate::sources::{
+    get_remote_commit_sha, resolve_git_source_at_commit_with_cache, resolve_git_source_with_cache,
+    GitCloneCache,
+};
 use dialoguer::Confirm;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -155,6 +158,7 @@ pub fn install_entry(
     manifest_dir: &Path,
     lockfile: &Lockfile,
     options: &InstallOptions,
+    git_cache: &mut GitCloneCache,
 ) -> Result<InstallResult> {
     info!("Processing entry: {}", entry.id);
 
@@ -170,6 +174,7 @@ pub fn install_entry(
     let resolved = if let Some((repo, git_ref)) = source.git_info() {
         let dest_path = manifest_dir.join(entry.destination());
         let locked_entry = lockfile.entries.get(&entry.id);
+        let shallow = source.git_shallow().unwrap_or(true);
 
         // Check if we should use the locked commit
         let use_locked_commit =
@@ -223,25 +228,13 @@ pub fn install_entry(
                 entry.id,
                 &locked_commit[..8.min(locked_commit.len())]
             );
-            let resolved_git = clone_at_commit(repo, locked_commit, locked_ref)?;
-
-            // Build the path within the cloned repo
-            let path = source
-                .git_path()
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| ".".to_string());
-            let source_path = if path == "." {
-                resolved_git.repo_path.clone()
-            } else {
-                resolved_git.repo_path.join(&path)
-            };
-
-            let git_info = GitInfo {
-                resolved_ref: resolved_git.resolved_ref.clone(),
-                commit_sha: resolved_git.commit_sha.clone(),
-            };
-
-            ResolvedSource::git(source_path, repo.to_string(), git_info, resolved_git)
+            resolve_git_source_at_commit_with_cache(
+                repo,
+                locked_commit,
+                locked_ref,
+                source.git_path(),
+                git_cache,
+            )?
         } else {
             // Upgrade mode or no locked commit: check remote and clone latest
             // Fast-path: skip if remote commit matches lockfile and dest exists
@@ -278,8 +271,7 @@ pub fn install_entry(
             }
 
             // Clone latest from branch
-            let adapter = source.to_adapter();
-            adapter.resolve(manifest_dir)?
+            resolve_git_source_with_cache(repo, git_ref, shallow, source.git_path(), git_cache)?
         }
     } else {
         // Non-git source (filesystem): use adapter directly
@@ -487,6 +479,7 @@ pub fn install_composite_entry(
     manifest_dir: &Path,
     lockfile: &Lockfile,
     options: &InstallOptions,
+    git_cache: &mut GitCloneCache,
 ) -> Result<InstallResult> {
     info!("Processing composite entry: {}", entry.id);
 
@@ -501,8 +494,13 @@ pub fn install_composite_entry(
     let mut all_checksums: Vec<String> = Vec::new();
 
     for source in &entry.sources {
-        let adapter = source.to_adapter();
-        let resolved = adapter.resolve(manifest_dir)?;
+        let resolved = if let Some((repo, git_ref)) = source.git_info() {
+            let shallow = source.git_shallow().unwrap_or(true);
+            resolve_git_source_with_cache(repo, git_ref, shallow, source.git_path(), git_cache)?
+        } else {
+            let adapter = source.to_adapter();
+            adapter.resolve(manifest_dir)?
+        };
 
         if !resolved.source_path.exists() {
             return Err(ApsError::SourcePathNotFound {
