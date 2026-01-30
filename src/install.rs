@@ -11,6 +11,7 @@ use dialoguer::Confirm;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
+use walkdir::WalkDir;
 
 /// Normalize a path by removing trailing slashes
 /// This prevents issues with path operations like parent()
@@ -73,6 +74,55 @@ fn handle_conflict(
     // Create backup
     let backup_path = create_backup(manifest_dir, dest_path)?;
     println!("Created backup at: {:?}", backup_path);
+
+    Ok(true)
+}
+
+/// Handle conflict detection and resolution for a set of specific paths.
+fn handle_partial_conflict(
+    dest_path: &Path,
+    conflict_paths: &[PathBuf],
+    manifest_dir: &Path,
+    options: &InstallOptions,
+) -> Result<bool> {
+    if conflict_paths.is_empty() {
+        return Ok(true);
+    }
+
+    if options.dry_run {
+        println!(
+            "[dry-run] Would overwrite {} item(s) under {:?}",
+            conflict_paths.len(),
+            dest_path
+        );
+        return Ok(false);
+    }
+
+    let should_overwrite = if options.yes {
+        true
+    } else if std::io::stdin().is_terminal() {
+        Confirm::new()
+            .with_prompt(format!(
+                "Overwrite {} existing item(s) under {:?}?",
+                conflict_paths.len(),
+                dest_path
+            ))
+            .default(false)
+            .interact()
+            .map_err(|_| ApsError::Cancelled)?
+    } else {
+        return Err(ApsError::RequiresYesFlag);
+    };
+
+    if !should_overwrite {
+        info!("User declined to overwrite content under {:?}", dest_path);
+        return Err(ApsError::Cancelled);
+    }
+
+    for path in conflict_paths {
+        let backup_path = create_backup(manifest_dir, path)?;
+        println!("Created backup at: {:?}", backup_path);
+    }
 
     Ok(true)
 }
@@ -820,4 +870,258 @@ fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
 
     debug!("Copied directory {:?} to {:?}", src, dst);
     Ok(())
+}
+
+/// Recursively copy a directory without deleting existing destination content.
+fn copy_directory_merge(src: &Path, dst: &Path) -> Result<()> {
+    // Normalize paths to handle trailing slashes
+    let src = normalize_path(src);
+    let dst = normalize_path(dst);
+
+    if !dst.exists() {
+        std::fs::create_dir_all(&dst)
+            .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", dst)))?;
+    }
+
+    for entry in WalkDir::new(&src) {
+        let entry = entry.map_err(|e| {
+            ApsError::io(
+                std::io::Error::new(std::io::ErrorKind::Other, e),
+                "Failed to traverse source directory",
+            )
+        })?;
+        let path = entry.path();
+        let rel = path.strip_prefix(&src).map_err(|e| {
+            ApsError::io(
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                format!("Failed to compute relative path: {}", e),
+            )
+        })?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let dest_path = dst.join(rel);
+
+        if entry.file_type().is_dir() {
+            if dest_path.exists() {
+                let meta = dest_path.symlink_metadata().map_err(|e| {
+                    ApsError::io(e, format!("Failed to read metadata for {:?}", dest_path))
+                })?;
+                if meta.file_type().is_symlink() || dest_path.is_file() {
+                    if dest_path.is_dir() {
+                        std::fs::remove_dir_all(&dest_path).map_err(|e| {
+                            ApsError::io(e, format!("Failed to remove directory {:?}", dest_path))
+                        })?;
+                    } else {
+                        std::fs::remove_file(&dest_path).map_err(|e| {
+                            ApsError::io(e, format!("Failed to remove file {:?}", dest_path))
+                        })?;
+                    }
+                }
+            }
+            std::fs::create_dir_all(&dest_path).map_err(|e| {
+                ApsError::io(e, format!("Failed to create directory {:?}", dest_path))
+            })?;
+        } else {
+            if let Some(parent) = dest_path.parent() {
+                if !parent.exists() {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        ApsError::io(e, format!("Failed to create directory {:?}", parent))
+                    })?;
+                }
+            }
+            if dest_path.exists() {
+                let meta = dest_path.symlink_metadata().map_err(|e| {
+                    ApsError::io(e, format!("Failed to read metadata for {:?}", dest_path))
+                })?;
+                if meta.file_type().is_symlink() {
+                    std::fs::remove_file(&dest_path).map_err(|e| {
+                        ApsError::io(e, format!("Failed to remove file {:?}", dest_path))
+                    })?;
+                } else if dest_path.is_dir() {
+                    std::fs::remove_dir_all(&dest_path).map_err(|e| {
+                        ApsError::io(e, format!("Failed to remove directory {:?}", dest_path))
+                    })?;
+                }
+            }
+            std::fs::copy(path, &dest_path)
+                .map_err(|e| ApsError::io(e, format!("Failed to copy {:?}", path)))?;
+        }
+    }
+
+    debug!("Merged directory {:?} into {:?}", src, dst);
+    Ok(())
+}
+
+/// Make all .sh scripts under a directory executable (recursive).
+fn make_shell_scripts_executable(dir: &Path) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        use walkdir::WalkDir;
+        for entry in WalkDir::new(dir) {
+            let entry = entry.map_err(|e| {
+                ApsError::io(
+                    std::io::Error::new(std::io::ErrorKind::Other, e),
+                    "Failed to traverse hooks directory",
+                )
+            })?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("sh") {
+                continue;
+            }
+
+            let metadata = entry.path().metadata().map_err(|e| {
+                ApsError::io(e, format!("Failed to read metadata for {:?}", entry.path()))
+            })?;
+            let mut permissions = metadata.permissions();
+            let mode = permissions.mode();
+            let new_mode = mode | 0o100 | 0o010;
+            if new_mode != mode {
+                permissions.set_mode(new_mode);
+                std::fs::set_permissions(entry.path(), permissions).map_err(|e| {
+                    ApsError::io(
+                        e,
+                        format!("Failed to set permissions for {:?}", entry.path()),
+                    )
+                })?;
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = dir;
+    }
+
+    Ok(())
+}
+
+fn hooks_config_paths(
+    kind: &AssetKind,
+    source_hooks_dir: &Path,
+    dest_hooks_dir: &Path,
+) -> Result<Option<(PathBuf, PathBuf)>> {
+    let filename = match kind {
+        AssetKind::CursorHooks => "hooks.json",
+        AssetKind::ClaudeHooks => "settings.json",
+        _ => return Ok(None),
+    };
+
+    let source_parent =
+        source_hooks_dir
+            .parent()
+            .ok_or_else(|| ApsError::InvalidHooksDirectory {
+                path: source_hooks_dir.to_path_buf(),
+            })?;
+    let dest_parent = dest_hooks_dir
+        .parent()
+        .ok_or_else(|| ApsError::InvalidHooksDirectory {
+            path: dest_hooks_dir.to_path_buf(),
+        })?;
+
+    Ok(Some((
+        source_parent.join(filename),
+        dest_parent.join(filename),
+    )))
+}
+
+fn sync_hooks_config(
+    kind: &AssetKind,
+    source_hooks_dir: &Path,
+    dest_hooks_dir: &Path,
+    use_symlink: bool,
+) -> Result<()> {
+    let Some((source_config, dest_config)) =
+        hooks_config_paths(kind, source_hooks_dir, dest_hooks_dir)?
+    else {
+        return Ok(());
+    };
+
+    if !source_config.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = dest_config.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ApsError::io(e, format!("Failed to create directory {:?}", parent)))?;
+        }
+    }
+
+    if use_symlink {
+        create_symlink(&source_config, &dest_config)?;
+        return Ok(());
+    }
+
+    if dest_config.exists() {
+        let meta = dest_config.symlink_metadata().map_err(|e| {
+            ApsError::io(e, format!("Failed to read metadata for {:?}", dest_config))
+        })?;
+        if meta.file_type().is_symlink() {
+            std::fs::remove_file(&dest_config)
+                .map_err(|e| ApsError::io(e, format!("Failed to remove file {:?}", dest_config)))?;
+        } else if dest_config.is_dir() {
+            std::fs::remove_dir_all(&dest_config).map_err(|e| {
+                ApsError::io(e, format!("Failed to remove directory {:?}", dest_config))
+            })?;
+        }
+    }
+
+    std::fs::copy(&source_config, &dest_config).map_err(|e| {
+        ApsError::io(
+            e,
+            format!("Failed to copy {:?} to {:?}", source_config, dest_config),
+        )
+    })?;
+
+    Ok(())
+}
+
+fn collect_hook_conflicts(source: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
+    let mut conflicts = Vec::new();
+
+    for entry in WalkDir::new(source) {
+        let entry = entry.map_err(|e| {
+            ApsError::io(
+                std::io::Error::new(std::io::ErrorKind::Other, e),
+                "Failed to traverse source directory",
+            )
+        })?;
+        let path = entry.path();
+        let rel = path.strip_prefix(source).map_err(|e| {
+            ApsError::io(
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                format!("Failed to compute relative path: {}", e),
+            )
+        })?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let dest_path = dest.join(rel);
+        if !dest_path.exists() {
+            continue;
+        }
+        let meta = dest_path
+            .symlink_metadata()
+            .map_err(|e| ApsError::io(e, format!("Failed to read metadata for {:?}", dest_path)))?;
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        if entry.file_type().is_dir() {
+            if dest_path.is_file() {
+                conflicts.push(dest_path);
+            }
+        } else if dest_path.is_file() || dest_path.is_dir() {
+            conflicts.push(dest_path);
+        }
+    }
+
+    Ok(conflicts)
 }
