@@ -969,6 +969,145 @@ fn sync_shows_upgrade_available_status() {
         );
 }
 
+#[test]
+fn sync_reuses_git_clone_for_same_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source_repo = temp.child("source-repo");
+    source_repo.create_dir_all().unwrap();
+    create_git_repo_with_agents_md(source_repo.path(), "# Version 1\nOriginal content\n");
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: agents-one
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-1.md
+  - id: agents-two
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-2.md
+"#,
+        source_repo.path().display(),
+        source_repo.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    let output = aps()
+        .args(["--verbose", "sync"])
+        .current_dir(&project)
+        .output()
+        .expect("Failed to run aps sync");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let combined_output = format!("{stdout}\n{stderr}");
+    assert!(
+        output.status.success(),
+        "aps sync failed: {combined_output}"
+    );
+
+    let clone_count = combined_output.matches("Cloning git repository:").count();
+    let reuse_count = combined_output.matches("Reusing cached clone").count();
+    assert_eq!(
+        clone_count, 1,
+        "expected one clone for shared repo, output: {combined_output}"
+    );
+    assert!(
+        reuse_count >= 1,
+        "expected cached clone reuse, output: {combined_output}"
+    );
+
+    project
+        .child("AGENTS-1.md")
+        .assert(predicate::path::exists());
+    project
+        .child("AGENTS-2.md")
+        .assert(predicate::path::exists());
+}
+
+#[test]
+fn sync_clones_each_distinct_repo_once() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source_repo_a = temp.child("source-repo-a");
+    source_repo_a.create_dir_all().unwrap();
+    create_git_repo_with_agents_md(source_repo_a.path(), "# Repo A\n");
+
+    let source_repo_b = temp.child("source-repo-b");
+    source_repo_b.create_dir_all().unwrap();
+    create_git_repo_with_agents_md(source_repo_b.path(), "# Repo B\n");
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: agents-a
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-A.md
+  - id: agents-b
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-B.md
+"#,
+        source_repo_a.path().display(),
+        source_repo_b.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    let output = aps()
+        .args(["--verbose", "sync"])
+        .current_dir(&project)
+        .output()
+        .expect("Failed to run aps sync");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let combined_output = format!("{stdout}\n{stderr}");
+    assert!(
+        output.status.success(),
+        "aps sync failed: {combined_output}"
+    );
+
+    let clone_count = combined_output.matches("Cloning git repository:").count();
+    let reuse_count = combined_output.matches("Reusing cached clone").count();
+    assert_eq!(
+        clone_count, 2,
+        "expected one clone per distinct repo, output: {combined_output}"
+    );
+    assert_eq!(
+        reuse_count, 0,
+        "did not expect cache reuse across distinct repos, output: {combined_output}"
+    );
+}
+
 // ============================================================================
 // Composite Agents MD Tests (Live Git Sources)
 // ============================================================================
