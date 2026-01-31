@@ -1,0 +1,24 @@
+version: 1
+entries:
+  anthropic-skills:
+    source: git@github.com:anthropics/skills.git
+    dest: /Users/weston/clients/westonplatter/agentic-prompt-sync/./.claude/skills/
+    resolved_ref: main
+    commit: 69c0b1a0674149f27b61b2635f935524b6add202
+    last_updated_at: 2026-01-31T21:34:48.066444Z
+    checksum: sha256:030045ce794600899847fd8bee82c6c1e12294a14caf6f045b29ce5f854a18fa
+  address-github-comments:
+    source: https://github.com/sickn33/antigravity-awesome-skills.git
+    dest: /Users/weston/clients/westonplatter/agentic-prompt-sync/./.claude/skills/address-github-comments/
+    resolved_ref: main
+    commit: 4c400ca1218d73b032351bc083b40743dd9ec055
+    last_updated_at: 2026-01-31T21:34:49.645099Z
+    checksum: sha256:9848155412e292ff7d03b16df2a259c55e8f1f5bd75a5757f2f68ba0d8bec0a1
+  composite-agents-md:
+    source:
+      composite:
+        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.rust.md
+        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.pull-requests.md
+    dest: /Users/weston/clients/westonplatter/agentic-prompt-sync/./AGENTS.md
+    last_updated_at: 2026-01-31T21:35:18.006570Z
+    checksum: sha256:ef1f6fa7d1c284720116af14c9fa8573c04e9a83834e89f17b842ede6c2b11ce
