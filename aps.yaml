@@ -6,6 +6,10 @@ entries:
         repo: https://github.com/westonplatter/agentically.git
         ref: main
         path: agents-md-partials/AGENTS.rust.md
+      - type: git
+        repo: https://github.com/westonplatter/agentically.git
+        ref: main
+        path: agents-md-partials/AGENTS.pull-requests.md
     dest: ./AGENTS.md
 
   - id: anthropic-skills

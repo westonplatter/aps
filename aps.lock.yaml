@@ -11,9 +11,10 @@ entries:
     source:
       composite:
         - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.rust.md
+        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.pull-requests.md
     dest: /Users/weston/clients/westonplatter/agentic-prompt-sync/./AGENTS.md
-    last_updated_at: 2026-01-31T21:11:06.737656Z
-    checksum: sha256:952b1dc551d9210c03d80be8719e350296fa21a679fc19f374552b08f1b4dba7
+    last_updated_at: 2026-01-31T21:26:03.274022Z
+    checksum: sha256:7f7c72a64eb13ca5aeebb80b0aedec50e759623baab912407753da8ff881eaa9
   address-github-comments:
     source: https://github.com/sickn33/antigravity-awesome-skills.git
     dest: /Users/weston/clients/westonplatter/agentic-prompt-sync/./.claude/skills/address-github-comments/
