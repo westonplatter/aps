@@ -1,0 +1,33 @@
+entries:
+  - id: composite-agents-md
+    kind: composite_agents_md
+    sources:
+      - type: git
+        repo: https://github.com/westonplatter/agentically.git
+        ref: main
+        path: agents-md-partials/AGENTS.rust.md
+      - type: git
+        repo: https://github.com/westonplatter/agentically.git
+        ref: main
+        path: agents-md-partials/AGENTS.pull-requests.md
+    dest: ./AGENTS.md
+
+  - id: anthropic-skills
+    kind: agent_skill
+    source:
+      type: git
+      repo: https://github.com/anthropics/skills.git
+      ref: main
+      path: skills
+    include:
+      - skill-creation
+    dest: ./.claude/skills/
+
+  - id: address-github-comments
+    kind: agent_skill
+    source:
+      type: git
+      repo: https://github.com/sickn33/antigravity-awesome-skills.git
+      ref: main
+      path: skills/address-github-comments
+    dest: ./.claude/skills/address-github-comments/

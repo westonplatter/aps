@@ -2,11 +2,7 @@
 
 # APS (Agentic Prompt Sync)
 .aps-backups/
-aps.yaml
 aps.catalog.yaml
-aps.lock.yaml
-aps.manifest.lock
 
-AGENTS.md
 .cursor
 _bmad*
