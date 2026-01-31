@@ -12,7 +12,7 @@ entries:
     kind: agent_skill
     source:
       type: git
-      repo: git@github.com:anthropics/skills.git
+      repo: https://github.com/anthropics/skills.git
       ref: main
       path: skills
     include:
