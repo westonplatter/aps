@@ -24,6 +24,39 @@ impl Default for Manifest {
     }
 }
 
+/// Compression format for AGENTS.md files
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompressionFormat {
+    /// No compression (default)
+    #[default]
+    None,
+    /// Vercel-style pipe-delimited format: replaces newlines with |
+    PipeDelimited,
+    /// Remove extra whitespace and blank lines
+    Minified,
+}
+
+/// Compression options for composite AGENTS.md entries
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CompressConfig {
+    /// Enable compression
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Compression format to use
+    #[serde(default)]
+    pub format: CompressionFormat,
+
+    /// Preserve markdown headers on their own lines (for readability)
+    #[serde(default = "default_preserve_headers")]
+    pub preserve_headers: bool,
+}
+
+fn default_preserve_headers() -> bool {
+    true
+}
+
 /// A single entry in the manifest
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Entry {
@@ -48,6 +81,10 @@ pub struct Entry {
     /// Optional list of prefixes to filter which files/folders to sync
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub include: Vec<String>,
+
+    /// Compression options for composite AGENTS.md (reduces token usage)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compress: Option<CompressConfig>,
 }
 
 impl Entry {
@@ -64,6 +101,7 @@ impl Entry {
             sources: Vec::new(),
             dest: None,
             include: Vec::new(),
+            compress: None,
         }
     }
 
@@ -353,6 +391,7 @@ mod tests {
             sources: Vec::new(),
             dest: None,
             include: Vec::new(),
+            compress: None,
         };
 
         assert_eq!(entry.destination(), PathBuf::from("AGENTS.md"));
@@ -371,6 +410,7 @@ mod tests {
             sources: Vec::new(),
             dest: Some("custom/path/AGENTS.md".to_string()),
             include: Vec::new(),
+            compress: None,
         };
 
         assert_eq!(entry.destination(), PathBuf::from("custom/path/AGENTS.md"));
@@ -391,6 +431,7 @@ mod tests {
             sources: Vec::new(),
             dest: Some("$TEST_DEST_VAR/AGENTS.md".to_string()),
             include: Vec::new(),
+            compress: None,
         };
 
         assert_eq!(entry.destination(), PathBuf::from("/custom/dest/AGENTS.md"));
@@ -411,6 +452,7 @@ mod tests {
             sources: Vec::new(),
             dest: Some("~/agents/AGENTS.md".to_string()),
             include: Vec::new(),
+            compress: None,
         };
 
         let result = entry.destination();
@@ -439,6 +481,7 @@ mod tests {
             ],
             dest: None,
             include: Vec::new(),
+            compress: None,
         };
 
         assert!(entry.is_composite());
@@ -475,6 +518,7 @@ mod tests {
             ],
             dest: Some("./AGENTS.md".to_string()),
             include: Vec::new(),
+            compress: None,
         };
 
         assert!(entry.is_composite());

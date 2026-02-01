@@ -1,9 +1,11 @@
 //! Markdown composition module for creating composite AGENTS.md files.
 //!
 //! This module provides functionality to merge multiple markdown files into
-//! a single composite AGENTS.md file.
+//! a single composite AGENTS.md file, with optional compression to reduce
+//! token usage (Vercel-style pipe-delimited format).
 
 use crate::error::{ApsError, Result};
+use crate::manifest::{CompressConfig, CompressionFormat};
 use std::path::Path;
 use tracing::{debug, info};
 
@@ -26,6 +28,56 @@ pub struct ComposeOptions {
     pub add_separators: bool,
     /// Include source file information as comments
     pub include_source_info: bool,
+    /// Compression configuration (optional)
+    pub compress: Option<CompressConfig>,
+}
+
+/// Result of a compression operation with metrics
+#[derive(Debug, Clone)]
+pub struct CompressionMetrics {
+    /// Original size in bytes
+    pub original_bytes: usize,
+    /// Compressed size in bytes
+    pub compressed_bytes: usize,
+    /// Reduction percentage (0-100)
+    pub reduction_percent: f64,
+}
+
+impl CompressionMetrics {
+    /// Create metrics from before/after sizes
+    pub fn new(original: usize, compressed: usize) -> Self {
+        let reduction = if original > 0 {
+            ((original - compressed) as f64 / original as f64) * 100.0
+        } else {
+            0.0
+        };
+        Self {
+            original_bytes: original,
+            compressed_bytes: compressed,
+            reduction_percent: reduction,
+        }
+    }
+
+    /// Format as human-readable string (e.g., "42.3KB → 8.1KB, 81% reduction")
+    pub fn format_human(&self) -> String {
+        format!(
+            "{} → {}, {:.0}% reduction",
+            format_bytes(self.original_bytes),
+            format_bytes(self.compressed_bytes),
+            self.reduction_percent
+        )
+    }
+}
+
+/// Format bytes as human-readable string (KB, MB, etc.)
+fn format_bytes(bytes: usize) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1}MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1}KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{}B", bytes)
+    }
 }
 
 impl Default for ComposedSource {
@@ -95,6 +147,127 @@ pub fn compose_markdown(sources: &[ComposedSource], options: &ComposeOptions) ->
     debug!("Composed result: {} bytes", result.len());
 
     Ok(result)
+}
+
+/// Compose multiple markdown files with optional compression
+/// Returns the composed content and compression metrics (if compression was applied)
+pub fn compose_markdown_compressed(
+    sources: &[ComposedSource],
+    options: &ComposeOptions,
+) -> Result<(String, Option<CompressionMetrics>)> {
+    // First compose without compression
+    let uncompressed = compose_markdown(sources, options)?;
+
+    // Check if compression is enabled
+    let compress_config = match &options.compress {
+        Some(config) if config.enabled => config,
+        _ => return Ok((uncompressed, None)),
+    };
+
+    // Apply compression based on format
+    let compressed = match compress_config.format {
+        CompressionFormat::None => return Ok((uncompressed, None)),
+        CompressionFormat::PipeDelimited => {
+            compress_pipe_delimited(&uncompressed, compress_config.preserve_headers)
+        }
+        CompressionFormat::Minified => compress_minified(&uncompressed),
+    };
+
+    let metrics = CompressionMetrics::new(uncompressed.len(), compressed.len());
+
+    info!(
+        "Compressed markdown: {} → {} ({:.1}% reduction)",
+        format_bytes(metrics.original_bytes),
+        format_bytes(metrics.compressed_bytes),
+        metrics.reduction_percent
+    );
+
+    Ok((compressed, Some(metrics)))
+}
+
+/// Compress markdown using Vercel-style pipe-delimited format
+/// Replaces newlines with | pipes, optionally preserving headers on their own lines
+fn compress_pipe_delimited(content: &str, preserve_headers: bool) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::new();
+    let mut in_code_block = false;
+
+    for line in lines {
+        let trimmed = line.trim();
+
+        // Track code blocks (don't compress inside them)
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            result.push(trimmed.to_string());
+            continue;
+        }
+
+        // Inside code blocks, preserve as-is with pipe separator
+        if in_code_block {
+            result.push(line.to_string());
+            continue;
+        }
+
+        // Skip empty lines
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Preserve headers on their own lines for readability
+        if preserve_headers && trimmed.starts_with('#') {
+            // Add newline before header if not first element
+            if !result.is_empty() {
+                result.push(format!("\n{}", trimmed));
+            } else {
+                result.push(trimmed.to_string());
+            }
+        } else {
+            result.push(trimmed.to_string());
+        }
+    }
+
+    result.join("|")
+}
+
+/// Compress markdown by removing extra whitespace and blank lines
+fn compress_minified(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::new();
+    let mut in_code_block = false;
+    let mut prev_was_blank = false;
+
+    for line in lines {
+        let trimmed = line.trim();
+
+        // Track code blocks
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            result.push(trimmed.to_string());
+            prev_was_blank = false;
+            continue;
+        }
+
+        // Preserve code block content
+        if in_code_block {
+            result.push(line.to_string());
+            prev_was_blank = false;
+            continue;
+        }
+
+        // Collapse multiple blank lines to single
+        if trimmed.is_empty() {
+            if !prev_was_blank && !result.is_empty() {
+                result.push(String::new());
+                prev_was_blank = true;
+            }
+            continue;
+        }
+
+        result.push(trimmed.to_string());
+        prev_was_blank = false;
+    }
+
+    result.join("\n")
 }
 
 /// Write the composed markdown to a destination file
@@ -175,6 +348,7 @@ mod tests {
         let options = ComposeOptions {
             add_separators: true,
             include_source_info: false,
+            compress: None,
         };
 
         let result = compose_markdown(&sources, &options).unwrap();
@@ -192,6 +366,7 @@ mod tests {
         let options = ComposeOptions {
             add_separators: false,
             include_source_info: true,
+            compress: None,
         };
 
         let result = compose_markdown(&sources, &options).unwrap();
@@ -226,5 +401,134 @@ mod tests {
         // Verify
         let written = std::fs::read_to_string(&dest_path).unwrap();
         assert!(written.contains("Test Agent"));
+    }
+
+    #[test]
+    fn test_compress_pipe_delimited_basic() {
+        let content = "# Header\n\nLine one\nLine two\n\nLine three";
+        let result = super::compress_pipe_delimited(content, false);
+
+        // Should join non-empty lines with pipes
+        assert!(result.contains("|"));
+        assert!(!result.contains("\n\n")); // Empty lines removed
+        assert!(result.contains("# Header"));
+        assert!(result.contains("Line one"));
+    }
+
+    #[test]
+    fn test_compress_pipe_delimited_preserves_headers() {
+        let content = "# First Header\n\nSome content\n\n# Second Header\n\nMore content";
+        let result = super::compress_pipe_delimited(content, true);
+
+        // Headers should be on their own lines when preserve_headers=true
+        assert!(result.contains("\n# Second Header"));
+    }
+
+    #[test]
+    fn test_compress_pipe_delimited_preserves_code_blocks() {
+        let content = "Text before\n\n```python\ndef foo():\n    pass\n```\n\nText after";
+        let result = super::compress_pipe_delimited(content, false);
+
+        // Code blocks should be preserved
+        assert!(result.contains("def foo():"));
+        assert!(result.contains("pass"));
+    }
+
+    #[test]
+    fn test_compress_minified_basic() {
+        let content = "# Header\n\n\n\nLine one\n\n\n\nLine two";
+        let result = super::compress_minified(content);
+
+        // Multiple blank lines should be collapsed to single blank line
+        assert!(!result.contains("\n\n\n"));
+        assert!(result.contains("# Header"));
+        assert!(result.contains("Line one"));
+    }
+
+    #[test]
+    fn test_compress_minified_preserves_code_blocks() {
+        let content = "Text\n\n```\n  indented code\n```\n\nMore text";
+        let result = super::compress_minified(content);
+
+        // Code block indentation should be preserved
+        assert!(result.contains("  indented code"));
+    }
+
+    #[test]
+    fn test_compose_markdown_compressed_with_compression() {
+        use crate::manifest::{CompressConfig, CompressionFormat};
+
+        let sources = vec![ComposedSource {
+            path: std::path::PathBuf::from("test.md"),
+            content: "# Test\n\nContent here\n\nMore content".to_string(),
+            label: "test".to_string(),
+        }];
+
+        let options = ComposeOptions {
+            add_separators: false,
+            include_source_info: false,
+            compress: Some(CompressConfig {
+                enabled: true,
+                format: CompressionFormat::PipeDelimited,
+                preserve_headers: true,
+            }),
+        };
+
+        let (result, metrics) = compose_markdown_compressed(&sources, &options).unwrap();
+
+        // Should have compression metrics
+        assert!(metrics.is_some());
+        let m = metrics.unwrap();
+        assert!(m.compressed_bytes < m.original_bytes);
+        assert!(m.reduction_percent > 0.0);
+
+        // Result should contain pipes
+        assert!(result.contains("|"));
+    }
+
+    #[test]
+    fn test_compose_markdown_compressed_without_compression() {
+        let sources = vec![ComposedSource {
+            path: std::path::PathBuf::from("test.md"),
+            content: "# Test\n\nContent".to_string(),
+            label: "test".to_string(),
+        }];
+
+        let options = ComposeOptions {
+            add_separators: false,
+            include_source_info: false,
+            compress: None,
+        };
+
+        let (result, metrics) = compose_markdown_compressed(&sources, &options).unwrap();
+
+        // Should have no metrics when compression is disabled
+        assert!(metrics.is_none());
+
+        // Result should be uncompressed (contain newlines)
+        assert!(result.contains("\n"));
+    }
+
+    #[test]
+    fn test_compression_metrics_format() {
+        let metrics = CompressionMetrics::new(40000, 8000);
+
+        assert_eq!(metrics.original_bytes, 40000);
+        assert_eq!(metrics.compressed_bytes, 8000);
+        assert!((metrics.reduction_percent - 80.0).abs() < 0.1);
+
+        let formatted = metrics.format_human();
+        assert!(formatted.contains("39.1KB"));
+        assert!(formatted.contains("7.8KB"));
+        assert!(formatted.contains("80%"));
+    }
+
+    #[test]
+    fn test_format_bytes() {
+        assert_eq!(super::format_bytes(500), "500B");
+        assert_eq!(super::format_bytes(1024), "1.0KB");
+        assert_eq!(super::format_bytes(1536), "1.5KB");
+        assert_eq!(super::format_bytes(1048576), "1.0MB");
+        assert_eq!(super::format_bytes(1572864), "1.5MB");
     }
 }

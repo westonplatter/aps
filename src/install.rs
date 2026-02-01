@@ -1,7 +1,8 @@
 use crate::backup::{create_backup, has_conflict};
 use crate::checksum::{compute_source_checksum, compute_string_checksum};
 use crate::compose::{
-    compose_markdown, read_source_file, write_composed_file, ComposeOptions, ComposedSource,
+    compose_markdown_compressed, read_source_file, write_composed_file, ComposeOptions,
+    ComposedSource, CompressionMetrics,
 };
 use crate::error::{ApsError, Result};
 use crate::lockfile::{LockedEntry, Lockfile};
@@ -89,6 +90,8 @@ pub struct InstallResult {
     pub was_symlink: bool,
     /// Whether a newer version is available (for git sources in locked mode)
     pub upgrade_available: Option<UpgradeInfo>,
+    /// Compression metrics if compression was applied
+    pub compression_metrics: Option<CompressionMetrics>,
 }
 
 /// Information about an available upgrade
@@ -163,6 +166,7 @@ pub fn install_entry(
                     dest_path: dest_path.clone(),
                     was_symlink,
                     upgrade_available,
+                    compression_metrics: None,
                 });
             }
 
@@ -217,6 +221,7 @@ pub fn install_entry(
                             dest_path: dest_path.clone(),
                             was_symlink,
                             upgrade_available: None,
+                            compression_metrics: None,
                         });
                     }
                     debug!(
@@ -311,6 +316,7 @@ pub fn install_entry(
                 dest_path: dest_path.clone(),
                 was_symlink,
                 upgrade_available: None,
+                compression_metrics: None,
             });
         } else {
             debug!(
@@ -375,6 +381,7 @@ pub fn install_entry(
         dest_path,
         was_symlink: resolved.use_symlink,
         upgrade_available: None,
+        compression_metrics: None,
     })
 }
 
@@ -416,12 +423,14 @@ pub fn install_composite_entry(
         all_checksums.push(source_checksum);
     }
 
-    // Compose all sources into one markdown string
+    // Compose all sources into one markdown string (with optional compression)
     let compose_options = ComposeOptions {
         add_separators: false,
         include_source_info: false,
+        compress: entry.compress.clone(),
     };
-    let composed_content = compose_markdown(&composed_sources, &compose_options)?;
+    let (composed_content, compression_metrics) =
+        compose_markdown_compressed(&composed_sources, &compose_options)?;
 
     // Compute checksum of the final composed content
     let checksum = compute_string_checksum(&composed_content);
@@ -446,6 +455,7 @@ pub fn install_composite_entry(
             dest_path: dest_path.clone(),
             was_symlink: false,
             upgrade_available: None,
+            compression_metrics: None,
         });
     }
 
@@ -475,6 +485,7 @@ pub fn install_composite_entry(
         dest_path,
         was_symlink: false,
         upgrade_available: None,
+        compression_metrics,
     })
 }
 

@@ -232,6 +232,11 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
                 item = item.with_message(format!("{} → {}", current_short, available_short));
             }
 
+            // Add compression metrics if compression was applied
+            if let Some(ref metrics) = r.compression_metrics {
+                item = item.with_message(format!("compressed: {}", metrics.format_human()));
+            }
+
             item
         })
         .collect();
