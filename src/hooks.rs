@@ -60,7 +60,7 @@ fn validate_hooks(kind: HookKind, hooks_dir: &Path, strict: bool) -> Result<Vec<
 
     for rel_path in referenced_scripts {
         let script_path = hooks_root.join(rel_path);
-        if !script_path.exists() {
+        if !script_path.is_file() {
             warn_or_error(
                 &mut warnings,
                 strict,
