@@ -20,7 +20,7 @@ entries:
       ref: main
       path: skills
     include:
-      - skill-creation
+      - skill-creator
     dest: ./.claude/skills/
 
   - id: address-github-comments
@@ -29,5 +29,7 @@ entries:
       type: git
       repo: https://github.com/sickn33/antigravity-awesome-skills.git
       ref: main
-      path: skills/address-github-comments
-    dest: ./.claude/skills/address-github-comments/
+      path: skills
+    include:
+      - address-github-comments
+    dest: ./.claude/skills/

@@ -218,18 +218,24 @@ fn enumerate_entry_assets(entry: &Entry, manifest_dir: &Path) -> Result<Vec<Cata
             }
         }
         AssetKind::CursorHooks | AssetKind::ClaudeHooks => {
-            let files = enumerate_files(&resolved.source_path, &entry.include)?;
+            let files = enumerate_files_recursive(&resolved.source_path, &entry.include)?;
             for file_path in files {
-                let name = file_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                let relative_path = file_path
+                    .strip_prefix(&resolved.source_path)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| {
+                        file_path
+                            .file_name()
+                            .map(PathBuf::from)
+                            .unwrap_or_default()
+                    });
+                let name = relative_path.to_string_lossy().replace('\\', "/");
 
                 if name.is_empty() {
                     continue;
                 }
 
-                let dest_path = base_dest.join(&name);
+                let dest_path = base_dest.join(&relative_path);
 
                 catalog_entries.push(CatalogEntry {
                     id: format!("{}:{}", entry.id, name),
@@ -512,6 +518,59 @@ fn enumerate_files(dir: &Path, include: &[String]) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Enumerate all files in a directory recursively, optionally filtering by include prefixes
+fn enumerate_files_recursive(dir: &Path, include: &[String]) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    enumerate_files_recursive_inner(dir, dir, include, &mut files)?;
+
+    // Sort for deterministic output
+    files.sort();
+    Ok(files)
+}
+
+fn enumerate_files_recursive_inner(
+    current_dir: &Path,
+    root_dir: &Path,
+    include: &[String],
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(current_dir)
+        .map_err(|e| ApsError::io(e, format!("Failed to read directory {:?}", current_dir)))?
+    {
+        let entry = entry.map_err(|e| ApsError::io(e, "Failed to read directory entry"))?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            enumerate_files_recursive_inner(&path, root_dir, include, files)?;
+            continue;
+        }
+
+        // Only include files (not directories)
+        if !path.is_file() {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let relative_path = path.strip_prefix(root_dir).unwrap_or(&path);
+        let relative_str = relative_path.to_string_lossy().replace('\\', "/");
+
+        // Apply include filter if specified
+        if !include.is_empty() {
+            let matches = include.iter().any(|prefix| {
+                let normalized_prefix = prefix.replace('\\', "/");
+                relative_str.starts_with(&normalized_prefix) || name.starts_with(prefix)
+            });
+            if !matches {
+                continue;
+            }
+        }
+
+        files.push(path);
+    }
+
+    Ok(())
+}
+
 /// Enumerate all folders in a directory, optionally filtering by include prefixes
 fn enumerate_folders(dir: &Path, include: &[String]) -> Result<Vec<PathBuf>> {
     let mut folders = Vec::new();
@@ -584,6 +643,33 @@ mod tests {
 
         // Test with filter
         let files = enumerate_files(dir, &["rule".to_string()])?;
+        assert_eq!(files.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_enumerate_files_recursive() -> Result<()> {
+        let temp_dir = TempDir::new().unwrap();
+        let dir = temp_dir.path();
+
+        // Create test files in nested directories
+        std::fs::write(dir.join("hook1.sh"), "content1").unwrap();
+        std::fs::create_dir(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("nested").join("hook2.sh"), "content2").unwrap();
+        std::fs::create_dir(dir.join("nested").join("inner")).unwrap();
+        std::fs::write(dir.join("nested").join("inner").join("hook3.sh"), "content3").unwrap();
+
+        // Test without filter
+        let files = enumerate_files_recursive(dir, &[])?;
+        assert_eq!(files.len(), 3);
+
+        // Test with filename prefix filter
+        let files = enumerate_files_recursive(dir, &["hook1".to_string()])?;
+        assert_eq!(files.len(), 1);
+
+        // Test with nested path prefix filter
+        let files = enumerate_files_recursive(dir, &["nested/".to_string()])?;
         assert_eq!(files.len(), 2);
 
         Ok(())

@@ -20,7 +20,8 @@ pub fn validate_claude_hooks(hooks_dir: &Path, strict: bool) -> Result<Vec<Strin
 fn validate_hooks(kind: HookKind, hooks_dir: &Path, strict: bool) -> Result<Vec<String>> {
     let mut warnings = Vec::new();
 
-    let config_path = hooks_dir.join(config_filename(kind));
+    let hooks_root = hooks_root_dir(hooks_dir);
+    let config_path = hooks_root.join(config_filename(kind));
     if !config_path.exists() {
         warn_or_error(
             &mut warnings,
@@ -58,7 +59,7 @@ fn validate_hooks(kind: HookKind, hooks_dir: &Path, strict: bool) -> Result<Vec<
     let referenced_scripts = collect_hook_script_paths(&commands, kind);
 
     for rel_path in referenced_scripts {
-        let script_path = hooks_dir.join(rel_path);
+        let script_path = hooks_root.join(rel_path);
         if !script_path.exists() {
             warn_or_error(
                 &mut warnings,
@@ -69,6 +70,13 @@ fn validate_hooks(kind: HookKind, hooks_dir: &Path, strict: bool) -> Result<Vec<
     }
 
     Ok(warnings)
+}
+
+fn hooks_root_dir(hooks_dir: &Path) -> PathBuf {
+    match hooks_dir.file_name().and_then(|name| name.to_str()) {
+        Some("hooks") | Some("scripts") => hooks_dir.parent().unwrap_or(hooks_dir).to_path_buf(),
+        _ => hooks_dir.to_path_buf(),
+    }
 }
 
 fn config_filename(kind: HookKind) -> &'static str {
@@ -127,36 +135,11 @@ fn collect_command_values(value: &Value, commands: &mut Vec<String>) {
 
 fn collect_hook_script_paths(commands: &[String], kind: HookKind) -> HashSet<PathBuf> {
     let mut scripts = HashSet::new();
-    let prefixes = match kind {
-        HookKind::Cursor => vec![
-            ".cursor/hooks/",
-            "./.cursor/hooks/",
-            "hooks/",
-            "./hooks/",
-            ".cursor\\hooks\\",
-            ".\\.cursor\\hooks\\",
-            "hooks\\",
-            ".\\hooks\\",
-        ],
-        HookKind::Claude => vec![
-            ".claude/hooks/",
-            "./.claude/hooks/",
-            "$CLAUDE_PROJECT_DIR/.claude/hooks/",
-            "${CLAUDE_PROJECT_DIR}/.claude/hooks/",
-            ".claude\\hooks\\",
-            ".\\.claude\\hooks\\",
-            "$CLAUDE_PROJECT_DIR\\.claude\\hooks\\",
-            "${CLAUDE_PROJECT_DIR}\\.claude\\hooks\\",
-        ],
-    };
 
     for command in commands {
         for token in command.split_whitespace() {
-            let token = trim_token(token);
-            for prefix in &prefixes {
-                if let Some(rel_path) = extract_relative_path(token, prefix) {
-                    scripts.insert(PathBuf::from(rel_path));
-                }
+            if let Some(rel_path) = extract_relative_path(token, kind) {
+                scripts.insert(PathBuf::from(rel_path));
             }
         }
     }
@@ -164,15 +147,43 @@ fn collect_hook_script_paths(commands: &[String], kind: HookKind) -> HashSet<Pat
     scripts
 }
 
-fn extract_relative_path(token: &str, prefix: &str) -> Option<String> {
-    let position = token.find(prefix)?;
-    let mut rel = &token[position + prefix.len()..];
-    rel = rel.trim_matches(|c: char| matches!(c, '"' | '\'' | ';' | ')' | '(' | ','));
-    if rel.is_empty() {
-        None
-    } else {
-        Some(rel.to_string())
+fn extract_relative_path(token: &str, kind: HookKind) -> Option<String> {
+    let token = trim_token(token);
+    if token.is_empty() {
+        return None;
     }
+
+    let markers = match kind {
+        HookKind::Cursor => [".cursor/", ".cursor\\"],
+        HookKind::Claude => [".claude/", ".claude\\"],
+    };
+
+    for marker in markers {
+        if let Some(position) = token.find(marker) {
+            let mut rel = &token[position + marker.len()..];
+            rel = trim_token(rel);
+            if !rel.is_empty() {
+                return Some(rel.to_string());
+            }
+        }
+    }
+
+    let trimmed = token
+        .strip_prefix("./")
+        .or_else(|| token.strip_prefix(".\\"))
+        .unwrap_or(token);
+    let rel_prefixes = ["hooks/", "scripts/", "hooks\\", "scripts\\"];
+
+    for prefix in rel_prefixes {
+        if trimmed.starts_with(prefix) {
+            let rel = trim_token(trimmed);
+            if !rel.is_empty() {
+                return Some(rel.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 fn trim_token(token: &str) -> &str {
