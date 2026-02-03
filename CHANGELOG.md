@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.8](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.7...aps-v0.1.8) (2026-02-02)
+
+
+### Features
+
+* add AGENTS.md via partials from remote repos ([#53](https://github.com/westonplatter/agentic-prompt-sync/issues/53)) ([c3b7ed2](https://github.com/westonplatter/agentic-prompt-sync/commit/c3b7ed2155b0718976c19d764af1e67c5e5a7bc3))
+* Store relative paths in lockfile for cross-machine portability ([#56](https://github.com/westonplatter/agentic-prompt-sync/issues/56)) ([cc1dd8f](https://github.com/westonplatter/agentic-prompt-sync/commit/cc1dd8f5a5c5414677cce0650f89520019dee0f2))
+
 ## [0.1.7](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.6...aps-v0.1.7) (2026-01-24)
 
 

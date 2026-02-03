@@ -27,7 +27,8 @@ pub fn detect_orphaned_paths(
     for entry in entries {
         // Check if this entry exists in the lockfile
         if let Some(locked_entry) = lockfile.entries.get(&entry.id) {
-            let old_dest = PathBuf::from(&locked_entry.dest);
+            // Lockfile stores relative paths, so join with manifest_dir to get absolute path
+            let old_dest = manifest_dir.join(&locked_entry.dest);
             let new_dest = manifest_dir.join(entry.destination());
 
             // Normalize paths for comparison

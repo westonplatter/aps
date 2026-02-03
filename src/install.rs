@@ -467,7 +467,9 @@ pub fn install_entry(
     }
 
     // Create locked entry from resolved source
-    let locked_entry = resolved.to_locked_entry(&dest_path, checksum, symlinked_items);
+    // Store relative path in lockfile for portability across machines
+    let relative_dest = entry.destination();
+    let locked_entry = resolved.to_locked_entry(&relative_dest, checksum, symlinked_items);
 
     Ok(InstallResult {
         id: entry.id.clone(),
@@ -564,10 +566,12 @@ pub fn install_composite_entry(
     }
 
     // Create locked entry with original source paths (preserving shell variables like $HOME)
+    // Store relative path in lockfile for portability across machines
     let source_paths: Vec<String> = entry.sources.iter().map(|s| s.display_path()).collect();
+    let relative_dest = entry.destination();
 
     let locked_entry =
-        LockedEntry::new_composite(source_paths, &dest_path.to_string_lossy(), checksum);
+        LockedEntry::new_composite(source_paths, &relative_dest.to_string_lossy(), checksum);
 
     Ok(InstallResult {
         id: entry.id.clone(),
