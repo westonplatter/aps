@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.8...aps-v0.1.9) (2026-02-04)
+
+
+### Features
+
+* Add `aps add` command for importing skills from GitHub URLs ([#57](https://github.com/westonplatter/agentic-prompt-sync/issues/57)) ([8052e3a](https://github.com/westonplatter/agentic-prompt-sync/commit/8052e3a321c6ce62aee5027832fdd34ef6b035dc))
+
 ## [0.1.8](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.7...aps-v0.1.8) (2026-02-02)
 
 

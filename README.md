@@ -70,6 +70,36 @@ cargo build --release
 # Binary at target/release/aps
 ```
 
+## Updating
+
+To update `aps` to the latest version, use the same method you used to install it.
+
+### Quick Install (macOS/Linux)
+
+Re-run the install script to download and install the latest version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
+```
+
+### Download Binary
+
+Download the latest binary for your platform from the [Releases page](https://github.com/westonplatter/agentic-prompt-sync/releases) and replace your existing installation.
+
+### Cargo Update
+
+If you installed via `cargo install`:
+
+```bash
+cargo install aps
+```
+
+Cargo will automatically detect and install the newer version. If you want to force a reinstall of the same version, use:
+
+```bash
+cargo install aps --force
+```
+
 ## Getting Started
 
 ### Quick Start
