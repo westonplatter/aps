@@ -882,7 +882,12 @@ fn add_parses_skill_md_url_correctly() {
         "path: terraform/module-generation/skills/refactor-module",
     ));
     // Should NOT contain SKILL.md in the path
-    manifest.assert(predicate::str::contains("path: terraform/module-generation/skills/refactor-module/SKILL.md").not());
+    manifest.assert(
+        predicate::str::contains(
+            "path: terraform/module-generation/skills/refactor-module/SKILL.md",
+        )
+        .not(),
+    );
 }
 
 #[test]
@@ -905,7 +910,9 @@ fn add_with_custom_id() {
     // Verify manifest has custom ID
     let manifest = temp.child("aps.yaml");
     manifest.assert(predicate::str::contains("id: my-custom-skill"));
-    manifest.assert(predicate::str::contains("dest: .claude/skills/my-custom-skill/"));
+    manifest.assert(predicate::str::contains(
+        "dest: .claude/skills/my-custom-skill/",
+    ));
 }
 
 #[test]

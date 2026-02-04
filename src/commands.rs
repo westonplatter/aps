@@ -146,7 +146,10 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
         sources: Vec::new(),
         dest: Some(format!(
             "{}/{}/",
-            asset_kind.default_dest().to_string_lossy().trim_end_matches('/'),
+            asset_kind
+                .default_dest()
+                .to_string_lossy()
+                .trim_end_matches('/'),
             entry_id
         )),
         include: Vec::new(),
@@ -170,10 +173,11 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
                         entries: vec![new_entry.clone()],
                     };
 
-                    let content =
-                        serde_yaml::to_string(&manifest).map_err(|e| ApsError::ManifestParseError {
+                    let content = serde_yaml::to_string(&manifest).map_err(|e| {
+                        ApsError::ManifestParseError {
                             message: format!("Failed to serialize manifest: {}", e),
-                        })?;
+                        }
+                    })?;
 
                     fs::write(&path, &content).map_err(|e| {
                         ApsError::io(e, format!("Failed to write manifest to {:?}", path))
@@ -220,8 +224,12 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
         message: format!("Failed to serialize manifest: {}", e),
     })?;
 
-    fs::write(&manifest_path, &content)
-        .map_err(|e| ApsError::io(e, format!("Failed to write manifest to {:?}", manifest_path)))?;
+    fs::write(&manifest_path, &content).map_err(|e| {
+        ApsError::io(
+            e,
+            format!("Failed to write manifest to {:?}", manifest_path),
+        )
+    })?;
 
     info!("Added entry '{}' to {:?}", entry_id, manifest_path);
     println!("Added entry '{}' to {:?}\n", entry_id, manifest_path);

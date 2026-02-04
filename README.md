@@ -121,13 +121,13 @@ aps status
 
 ## Commands
 
-| Command        | Description                                            |
-| -------------- | ------------------------------------------------------ |
-| `aps init`     | Create a new manifest file and update .gitignore       |
-| `aps add`      | Add a skill from a GitHub URL and sync it              |
-| `aps sync`     | Sync all entries from manifest and install assets      |
-| `aps validate` | Validate manifest schema and check sources             |
-| `aps status`   | Display last sync information from lockfile            |
+| Command        | Description                                       |
+| -------------- | ------------------------------------------------- |
+| `aps init`     | Create a new manifest file and update .gitignore  |
+| `aps add`      | Add a skill from a GitHub URL and sync it         |
+| `aps sync`     | Sync all entries from manifest and install assets |
+| `aps validate` | Validate manifest schema and check sources        |
+| `aps status`   | Display last sync information from lockfile       |
 
 ### Common Options
 

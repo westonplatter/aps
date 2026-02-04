@@ -66,10 +66,12 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
     })?;
 
     // Verify it's a GitHub URL
-    let host = parsed.host_str().ok_or_else(|| ApsError::InvalidGitHubUrl {
-        url: url.to_string(),
-        reason: "Missing host".to_string(),
-    })?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ApsError::InvalidGitHubUrl {
+            url: url.to_string(),
+            reason: "Missing host".to_string(),
+        })?;
 
     if host != "github.com" && host != "www.github.com" {
         return Err(ApsError::InvalidGitHubUrl {
@@ -79,11 +81,7 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
     }
 
     // Parse the path: /{owner}/{repo}/{blob|tree}/{ref}/{path...}
-    let path_segments: Vec<&str> = parsed
-        .path()
-        .trim_start_matches('/')
-        .split('/')
-        .collect();
+    let path_segments: Vec<&str> = parsed.path().trim_start_matches('/').split('/').collect();
 
     // Need at least: owner, repo, blob/tree, ref
     if path_segments.len() < 4 {
@@ -183,8 +181,7 @@ mod tests {
 
     #[test]
     fn test_parse_tree_url() {
-        let url =
-            "https://github.com/anthropics/skills/tree/main/skills/skill-creation";
+        let url = "https://github.com/anthropics/skills/tree/main/skills/skill-creation";
         let parsed = parse_github_url(url).unwrap();
 
         assert_eq!(parsed.repo_url, "https://github.com/anthropics/skills.git");
