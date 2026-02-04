@@ -68,6 +68,10 @@ pub struct AddArgs {
     /// Path to the manifest file
     #[arg(long)]
     pub manifest: Option<PathBuf>,
+
+    /// Skip syncing after adding (only update manifest)
+    #[arg(long)]
+    pub no_sync: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]

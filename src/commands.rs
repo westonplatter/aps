@@ -153,7 +153,7 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
     };
 
     // Find or create manifest
-    let manifest_path = match args.manifest {
+    let manifest_path = match args.manifest.clone() {
         Some(p) => p,
         None => {
             // Try to discover existing manifest, or use default in current directory
@@ -179,15 +179,24 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
                         ApsError::io(e, format!("Failed to write manifest to {:?}", path))
                     })?;
 
-                    println!("Added entry '{}' to manifest", entry_id);
-                    println!("\nEntry details:");
-                    println!("  ID: {}", entry_id);
-                    println!("  Kind: {:?}", asset_kind);
-                    println!("  Repo: {}", parsed.repo_url);
-                    println!("  Ref: {}", parsed.git_ref);
-                    println!("  Path: {}", skill_path);
+                    println!("Added entry '{}' to manifest\n", entry_id);
 
-                    println!("\nRun `aps sync` to install the skill.");
+                    // Sync the new entry unless --no-sync is set
+                    if !args.no_sync {
+                        println!("Syncing...\n");
+                        cmd_sync(SyncArgs {
+                            manifest: Some(path),
+                            only: vec![entry_id],
+                            yes: true,
+                            ignore_manifest: false,
+                            dry_run: false,
+                            strict: false,
+                            upgrade: false,
+                        })?;
+                    } else {
+                        println!("Run `aps sync` to install the skill.");
+                    }
+
                     return Ok(());
                 }
                 Err(e) => return Err(e),
@@ -215,15 +224,23 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
         .map_err(|e| ApsError::io(e, format!("Failed to write manifest to {:?}", manifest_path)))?;
 
     info!("Added entry '{}' to {:?}", entry_id, manifest_path);
-    println!("Added entry '{}' to {:?}", entry_id, manifest_path);
-    println!("\nEntry details:");
-    println!("  ID: {}", entry_id);
-    println!("  Kind: {:?}", asset_kind);
-    println!("  Repo: {}", parsed.repo_url);
-    println!("  Ref: {}", parsed.git_ref);
-    println!("  Path: {}", skill_path);
+    println!("Added entry '{}' to {:?}\n", entry_id, manifest_path);
 
-    println!("\nRun `aps sync` to install the skill.");
+    // Sync the new entry unless --no-sync is set
+    if !args.no_sync {
+        println!("Syncing...\n");
+        cmd_sync(SyncArgs {
+            manifest: args.manifest,
+            only: vec![entry_id],
+            yes: true,
+            ignore_manifest: false,
+            dry_run: false,
+            strict: false,
+            upgrade: false,
+        })?;
+    } else {
+        println!("Run `aps sync` to install the skill.");
+    }
 
     Ok(())
 }

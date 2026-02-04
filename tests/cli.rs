@@ -823,3 +823,236 @@ entries: {}
     temp.child("aps.manifest.lock")
         .assert(predicate::path::missing());
 }
+
+// ============================================================================
+// Add Command Tests
+// ============================================================================
+
+#[test]
+fn add_creates_manifest_entry_with_no_sync() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Use --no-sync to only test manifest creation (not network call)
+    aps()
+        .args([
+            "add",
+            "https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Added entry 'refactor-module'"))
+        .stdout(predicate::str::contains("Creating new manifest"));
+
+    // Verify manifest was created
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::path::exists());
+
+    // Verify manifest content
+    manifest.assert(predicate::str::contains("id: refactor-module"));
+    manifest.assert(predicate::str::contains("kind: agent_skill"));
+    manifest.assert(predicate::str::contains(
+        "repo: https://github.com/hashicorp/agent-skills.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: main"));
+    manifest.assert(predicate::str::contains(
+        "path: terraform/module-generation/skills/refactor-module",
+    ));
+}
+
+#[test]
+fn add_parses_skill_md_url_correctly() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // URL ending in SKILL.md should have the SKILL.md stripped from path
+    aps()
+        .args([
+            "add",
+            "https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Verify the path doesn't include SKILL.md
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains(
+        "path: terraform/module-generation/skills/refactor-module",
+    ));
+    // Should NOT contain SKILL.md in the path
+    manifest.assert(predicate::str::contains("path: terraform/module-generation/skills/refactor-module/SKILL.md").not());
+}
+
+#[test]
+fn add_with_custom_id() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "https://github.com/owner/repo/blob/main/path/to/skill",
+            "--id",
+            "my-custom-skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Added entry 'my-custom-skill'"));
+
+    // Verify manifest has custom ID
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("id: my-custom-skill"));
+    manifest.assert(predicate::str::contains("dest: .claude/skills/my-custom-skill/"));
+}
+
+#[test]
+fn add_to_existing_manifest() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create existing manifest with an entry
+    let existing_manifest = r#"entries:
+  - id: existing-skill
+    kind: agent_skill
+    source:
+      type: git
+      repo: https://github.com/other/repo.git
+      ref: main
+      path: skills/existing
+    dest: ./.claude/skills/existing-skill/
+"#;
+    temp.child("aps.yaml").write_str(existing_manifest).unwrap();
+
+    // Add a new skill
+    aps()
+        .args([
+            "add",
+            "https://github.com/owner/repo/blob/main/path/to/new-skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Added entry 'new-skill'"));
+
+    // Verify both entries exist
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("id: existing-skill"));
+    manifest.assert(predicate::str::contains("id: new-skill"));
+}
+
+#[test]
+fn add_duplicate_id_fails() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create existing manifest with an entry
+    let existing_manifest = r#"entries:
+  - id: duplicate-skill
+    kind: agent_skill
+    source:
+      type: git
+      repo: https://github.com/other/repo.git
+      ref: main
+      path: skills/existing
+    dest: ./.claude/skills/duplicate-skill/
+"#;
+    temp.child("aps.yaml").write_str(existing_manifest).unwrap();
+
+    // Try to add a skill with the same ID (derived from folder name)
+    aps()
+        .args([
+            "add",
+            "https://github.com/owner/repo/blob/main/path/to/duplicate-skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Duplicate"));
+}
+
+#[test]
+fn add_invalid_github_url_fails() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Non-GitHub URL
+    aps()
+        .args([
+            "add",
+            "https://gitlab.com/owner/repo/blob/main/path",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("github.com"));
+}
+
+#[test]
+fn add_invalid_url_format_fails() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // URL without blob/tree
+    aps()
+        .args([
+            "add",
+            "https://github.com/owner/repo/commits/main/path",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("blob").or(predicate::str::contains("tree")));
+}
+
+#[test]
+fn add_with_tree_url() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Tree URLs (directory view) should work too
+    aps()
+        .args([
+            "add",
+            "https://github.com/owner/repo/tree/main/path/to/skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("path: path/to/skill"));
+}
+
+#[test]
+fn add_with_different_ref() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // URL with a different branch/tag
+    aps()
+        .args([
+            "add",
+            "https://github.com/owner/repo/blob/v1.2.3/path/to/skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("ref: v1.2.3"));
+}
+
+#[test]
+fn add_help_shows_usage() {
+    aps()
+        .args(["add", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("GitHub URL"))
+        .stdout(predicate::str::contains("--id"))
+        .stdout(predicate::str::contains("--kind"))
+        .stdout(predicate::str::contains("--no-sync"));
+}

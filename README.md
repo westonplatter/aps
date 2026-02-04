@@ -82,7 +82,19 @@ aps init
 
 This creates a `aps.yaml` manifest file with an example entry.
 
-2. **Edit the manifest** to define your assets:
+2. **Add skills directly from GitHub URLs:**
+
+```bash
+# Add a skill from a GitHub URL - automatically syncs the skill
+aps add https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
+
+# Or use the folder URL (SKILL.md is auto-detected)
+aps add https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
+```
+
+This parses the GitHub URL, adds an entry to `aps.yaml`, and syncs the skill immediately.
+
+3. **Or manually edit the manifest** to define your assets:
 
 ```yaml
 entries:
@@ -95,13 +107,13 @@ entries:
     dest: ./AGENTS.md
 ```
 
-3. **Sync and install** your assets:
+4. **Sync and install** your assets:
 
 ```bash
 aps sync
 ```
 
-4. **Check status** of synced assets:
+5. **Check status** of synced assets:
 
 ```bash
 aps status
@@ -109,17 +121,24 @@ aps status
 
 ## Commands
 
-| Command        | Description                                       |
-| -------------- | ------------------------------------------------- |
-| `aps init`     | Create a new manifest file and update .gitignore  |
-| `aps sync`     | Sync all entries from manifest and install assets |
-| `aps validate` | Validate manifest schema and check sources        |
-| `aps status`   | Display last sync information from lockfile       |
+| Command        | Description                                            |
+| -------------- | ------------------------------------------------------ |
+| `aps init`     | Create a new manifest file and update .gitignore       |
+| `aps add`      | Add a skill from a GitHub URL and sync it              |
+| `aps sync`     | Sync all entries from manifest and install assets      |
+| `aps validate` | Validate manifest schema and check sources             |
+| `aps status`   | Display last sync information from lockfile            |
 
 ### Common Options
 
 - `--verbose` - Enable verbose logging
 - `--manifest <path>` - Specify manifest file path (default: `aps.yaml`)
+
+### Add Options
+
+- `--id <name>` - Custom entry ID (defaults to skill folder name)
+- `--kind <type>` - Asset kind: `agent-skill`, `cursor-rules`, `cursor-skills-root`, `agents-md` (default: `agent-skill`)
+- `--no-sync` - Only add to manifest, don't sync immediately
 
 ### Sync Options
 
