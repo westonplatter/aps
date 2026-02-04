@@ -26,6 +26,10 @@ impl ParsedGitHubUrl {
     /// Get the skill folder path (strips SKILL.md if present)
     pub fn skill_path(&self) -> &str {
         if self.is_skill_file {
+            // Handle root-level SKILL.md files (no leading slash)
+            if self.path == "SKILL.md" || self.path == "skill.md" {
+                return "";
+            }
             // Strip /SKILL.md from the path
             self.path
                 .strip_suffix("/SKILL.md")
@@ -234,5 +238,28 @@ mod tests {
         let url = "https://github.com/owner/repo/blob/main/path/skill.md";
         let parsed = parse_github_url(url).unwrap();
         assert!(parsed.is_skill_file);
+    }
+
+    #[test]
+    fn test_root_level_skill_md() {
+        // Test uppercase SKILL.md at root
+        let url = "https://github.com/owner/repo/blob/main/SKILL.md";
+        let parsed = parse_github_url(url).unwrap();
+
+        assert_eq!(parsed.repo_url, "https://github.com/owner/repo.git");
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "SKILL.md");
+        assert!(parsed.is_skill_file);
+        assert_eq!(parsed.skill_path(), "");
+        assert_eq!(parsed.skill_name(), None);
+
+        // Test lowercase skill.md at root
+        let url = "https://github.com/owner/repo/blob/main/skill.md";
+        let parsed = parse_github_url(url).unwrap();
+
+        assert_eq!(parsed.path, "skill.md");
+        assert!(parsed.is_skill_file);
+        assert_eq!(parsed.skill_path(), "");
+        assert_eq!(parsed.skill_name(), None);
     }
 }
