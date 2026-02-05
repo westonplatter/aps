@@ -955,14 +955,14 @@ fn copy_directory_merge(src: &Path, dst: &Path) -> Result<()> {
     for entry in WalkDir::new(&src) {
         let entry = entry.map_err(|e| {
             ApsError::io(
-                std::io::Error::new(std::io::ErrorKind::Other, e),
+                std::io::Error::other(e),
                 "Failed to traverse source directory",
             )
         })?;
         let path = entry.path();
         let rel = path.strip_prefix(&src).map_err(|e| {
             ApsError::io(
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                std::io::Error::other(e.to_string()),
                 format!("Failed to compute relative path: {}", e),
             )
         })?;
@@ -1037,7 +1037,7 @@ fn make_shell_scripts_executable(dir: &Path) -> Result<()> {
         for entry in WalkDir::new(dir) {
             let entry = entry.map_err(|e| {
                 ApsError::io(
-                    std::io::Error::new(std::io::ErrorKind::Other, e),
+                    std::io::Error::other(e),
                     "Failed to traverse hooks directory",
                 )
             })?;
@@ -1159,14 +1159,14 @@ fn collect_hook_conflicts(source: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
     for entry in WalkDir::new(source) {
         let entry = entry.map_err(|e| {
             ApsError::io(
-                std::io::Error::new(std::io::ErrorKind::Other, e),
+                std::io::Error::other(e),
                 "Failed to traverse source directory",
             )
         })?;
         let path = entry.path();
         let rel = path.strip_prefix(source).map_err(|e| {
             ApsError::io(
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                std::io::Error::other(e.to_string()),
                 format!("Failed to compute relative path: {}", e),
             )
         })?;
