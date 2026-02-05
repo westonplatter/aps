@@ -404,6 +404,15 @@ pub fn install_entry(
                     conflicts.push(dest_config);
                 }
             }
+            if dest_path.exists() {
+                let is_symlink = dest_path
+                    .symlink_metadata()
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink || !dest_path.is_dir() {
+                    conflicts.push(dest_path.clone());
+                }
+            }
             conflicts.sort();
             conflicts.dedup();
             let should_proceed =
