@@ -668,6 +668,19 @@ fn install_asset(
                 // Copy behavior
                 if include.is_empty() {
                     if matches!(kind, AssetKind::CursorHooks) {
+                        if dest.exists() {
+                            let meta = dest.symlink_metadata().map_err(|e| {
+                                ApsError::io(e, format!("Failed to read metadata for {:?}", dest))
+                            })?;
+                            if meta.file_type().is_symlink() || meta.file_type().is_file() {
+                                std::fs::remove_file(dest).map_err(|e| {
+                                    ApsError::io(e, format!("Failed to remove file {:?}", dest))
+                                })?;
+                            }
+                        }
+                        std::fs::create_dir_all(dest).map_err(|e| {
+                            ApsError::io(e, format!("Failed to create directory {:?}", dest))
+                        })?;
                         copy_directory_merge(source, dest)?;
                     } else {
                         copy_directory(source, dest)?;
@@ -678,11 +691,19 @@ fn install_asset(
 
                     // Ensure dest exists
                     if matches!(kind, AssetKind::CursorHooks) {
-                        if !dest.exists() {
-                            std::fs::create_dir_all(dest).map_err(|e| {
-                                ApsError::io(e, format!("Failed to create directory {:?}", dest))
+                        if dest.exists() {
+                            let meta = dest.symlink_metadata().map_err(|e| {
+                                ApsError::io(e, format!("Failed to read metadata for {:?}", dest))
                             })?;
+                            if meta.file_type().is_symlink() || meta.file_type().is_file() {
+                                std::fs::remove_file(dest).map_err(|e| {
+                                    ApsError::io(e, format!("Failed to remove file {:?}", dest))
+                                })?;
+                            }
                         }
+                        std::fs::create_dir_all(dest).map_err(|e| {
+                            ApsError::io(e, format!("Failed to create directory {:?}", dest))
+                        })?;
                     } else {
                         if dest.exists() {
                             std::fs::remove_dir_all(dest).map_err(|e| {
