@@ -24,6 +24,7 @@
 - **Composable AGENTS.md** - Merge multiple AGENTS.md files from local or remote sources into one
 - **Safe installs** - Automatic conflict detection and backup creation
 - **Deterministic lockfile** - Idempotent syncs that only update when needed
+- **Optimized Git Operations** - Smart caching reuses clones and skips unchanged commits for fast syncs
 
 ## Installation
 
@@ -176,7 +177,7 @@ cargo install aps --force
 
 When you run `aps sync`:
 
-1. **Entries are synced** - Each entry in `aps.yaml` is installed to its destination
+1. **Entries are synced** - Each entry in `aps.yaml` is installed to its destination (git sources reuse cached clones for speed)
 2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in `aps.yaml` are automatically removed
 3. **Lockfile is saved** - The updated lockfile is written to disk
 

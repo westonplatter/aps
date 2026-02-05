@@ -202,24 +202,40 @@ pub fn install_entry(
                 _ => None,
             };
 
-            // If destination exists and commit matches, we're up to date
+            // If destination exists, verify it matches the locked checksum before skipping
             if dest_path.exists() {
-                info!(
-                    "Entry {} is up to date (using locked commit {})",
-                    entry.id,
-                    &locked_commit[..8.min(locked_commit.len())]
-                );
-                let was_symlink = locked.is_symlink;
-                return Ok(InstallResult {
-                    id: entry.id.clone(),
-                    installed: false,
-                    skipped_no_change: true,
-                    locked_entry: None,
-                    warnings: Vec::new(),
-                    dest_path: dest_path.clone(),
-                    was_symlink,
-                    upgrade_available,
-                });
+                match compute_source_checksum(&dest_path) {
+                    Ok(dest_checksum) if dest_checksum == locked.checksum => {
+                        info!(
+                            "Entry {} is up to date (using locked commit {})",
+                            entry.id,
+                            &locked_commit[..8.min(locked_commit.len())]
+                        );
+                        let was_symlink = locked.is_symlink;
+                        return Ok(InstallResult {
+                            id: entry.id.clone(),
+                            installed: false,
+                            skipped_no_change: true,
+                            locked_entry: None,
+                            warnings: Vec::new(),
+                            dest_path: dest_path.clone(),
+                            was_symlink,
+                            upgrade_available,
+                        });
+                    }
+                    Ok(_) => {
+                        debug!(
+                            "Destination for {} differs from locked checksum, reinstalling",
+                            entry.id
+                        );
+                    }
+                    Err(err) => {
+                        debug!(
+                            "Failed to checksum destination for {}: {}, reinstalling",
+                            entry.id, err
+                        );
+                    }
+                }
             }
 
             // Clone at the locked commit
