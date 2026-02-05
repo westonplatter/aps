@@ -736,6 +736,29 @@ fn install_asset(
                                 copy_directory(&item, &item_dest)?;
                             }
                         } else {
+                            if item_dest.exists() {
+                                let meta = item_dest.symlink_metadata().map_err(|e| {
+                                    ApsError::io(
+                                        e,
+                                        format!("Failed to read metadata for {:?}", item_dest),
+                                    )
+                                })?;
+                                if meta.file_type().is_symlink() {
+                                    std::fs::remove_file(&item_dest).map_err(|e| {
+                                        ApsError::io(
+                                            e,
+                                            format!("Failed to remove file {:?}", item_dest),
+                                        )
+                                    })?;
+                                } else if item_dest.is_dir() {
+                                    std::fs::remove_dir_all(&item_dest).map_err(|e| {
+                                        ApsError::io(
+                                            e,
+                                            format!("Failed to remove directory {:?}", item_dest),
+                                        )
+                                    })?;
+                                }
+                            }
                             std::fs::copy(&item, &item_dest).map_err(|e| {
                                 ApsError::io(e, format!("Failed to copy {:?}", item))
                             })?;
@@ -1078,7 +1101,7 @@ fn make_shell_scripts_executable(dir: &Path) -> Result<()> {
             })?;
             let mut permissions = metadata.permissions();
             let mode = permissions.mode();
-            let new_mode = mode | 0o100 | 0o010;
+            let new_mode = mode | 0o111;
             if new_mode != mode {
                 permissions.set_mode(new_mode);
                 std::fs::set_permissions(entry.path(), permissions).map_err(|e| {
