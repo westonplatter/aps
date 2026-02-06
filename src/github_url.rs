@@ -1,5 +1,7 @@
 //! GitHub URL parsing for the `aps add` command.
 //!
+//! Also includes helpers for parsing git repository identifiers.
+//!
 //! Parses GitHub URLs to extract repository, branch/ref, and path information.
 //!
 //! Supported URL formats:
@@ -8,6 +10,8 @@
 //! - `https://github.com/{owner}/{repo}/blob/{ref}/{path}/SKILL.md` - direct skill file
 
 use crate::error::{ApsError, Result};
+use std::path::Path;
+use url::Url;
 
 /// Parsed GitHub URL components
 #[derive(Debug, Clone, PartialEq)]
@@ -22,8 +26,21 @@ pub struct ParsedGitHubUrl {
     pub is_skill_file: bool,
 }
 
+/// Parsed repository identifier (git URL or GitHub content URL)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedRepoIdentifier {
+    /// Repository URL or path (SSH/HTTPS/local)
+    pub repo_url: String,
+    /// Optional git ref (branch, tag, or commit)
+    pub git_ref: Option<String>,
+    /// Optional path within the repository
+    pub path: Option<String>,
+}
+
+#[allow(dead_code)]
 impl ParsedGitHubUrl {
     /// Get the skill folder path (strips SKILL.md if present)
+    #[allow(dead_code)]
     pub fn skill_path(&self) -> &str {
         if self.is_skill_file {
             // Handle root-level SKILL.md files (no leading slash)
@@ -41,6 +58,7 @@ impl ParsedGitHubUrl {
     }
 
     /// Get the skill name (last component of the path)
+    #[allow(dead_code)]
     pub fn skill_name(&self) -> Option<&str> {
         let skill_path = self.skill_path();
         skill_path.rsplit('/').next().filter(|s| !s.is_empty())
@@ -137,6 +155,140 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
         path,
         is_skill_file,
     })
+}
+
+/// Parse a repository identifier from the `aps add` command.
+///
+/// Accepts:
+/// - GitHub blob/tree URLs (extracts ref + path)
+/// - HTTPS/SSH Git URLs
+/// - SCP-style SSH URLs (git@host:owner/repo.git)
+/// - Local paths (if they exist on disk)
+pub fn parse_repo_identifier(input: &str) -> Result<ParsedRepoIdentifier> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(ApsError::InvalidRepoSpecifier {
+            value: input.to_string(),
+            reason: "Repository identifier cannot be empty".to_string(),
+        });
+    }
+
+    if let Ok(parsed) = Url::parse(input) {
+        let scheme = parsed.scheme();
+        let host = parsed.host_str().unwrap_or_default();
+        let path_segments: Vec<&str> = parsed
+            .path()
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if is_github_host(host) && matches!(scheme, "http" | "https") {
+            if path_segments.len() >= 3
+                && (path_segments[2] == "blob" || path_segments[2] == "tree")
+            {
+                let parsed = parse_github_url(input)?;
+                return Ok(ParsedRepoIdentifier {
+                    repo_url: parsed.repo_url,
+                    git_ref: Some(parsed.git_ref),
+                    path: Some(parsed.path),
+                });
+            }
+
+            if path_segments.len() == 2 {
+                let owner = path_segments[0];
+                let repo = path_segments[1].trim_end_matches(".git");
+                return Ok(ParsedRepoIdentifier {
+                    repo_url: format!("https://github.com/{}/{}.git", owner, repo),
+                    git_ref: None,
+                    path: None,
+                });
+            }
+
+            return Err(ApsError::InvalidRepoSpecifier {
+                value: input.to_string(),
+                reason: "GitHub URL must be a repository URL or a blob/tree URL".to_string(),
+            });
+        }
+
+        if is_github_host(host) && matches!(scheme, "ssh" | "git") {
+            return Ok(ParsedRepoIdentifier {
+                repo_url: input.to_string(),
+                git_ref: None,
+                path: None,
+            });
+        }
+
+        if matches!(scheme, "http" | "https" | "ssh" | "git" | "file") {
+            if path_segments.is_empty() {
+                return Err(ApsError::InvalidRepoSpecifier {
+                    value: input.to_string(),
+                    reason: "Repository URL is missing a path".to_string(),
+                });
+            }
+            return Ok(ParsedRepoIdentifier {
+                repo_url: input.to_string(),
+                git_ref: None,
+                path: None,
+            });
+        }
+
+        return Err(ApsError::InvalidRepoSpecifier {
+            value: input.to_string(),
+            reason: format!("Unsupported URL scheme: {}", scheme),
+        });
+    }
+
+    if is_scp_like_git_url(input) {
+        return Ok(ParsedRepoIdentifier {
+            repo_url: input.to_string(),
+            git_ref: None,
+            path: None,
+        });
+    }
+
+    if Path::new(input).exists() {
+        return Ok(ParsedRepoIdentifier {
+            repo_url: input.to_string(),
+            git_ref: None,
+            path: None,
+        });
+    }
+
+    Err(ApsError::InvalidRepoSpecifier {
+        value: input.to_string(),
+        reason: "Expected an HTTPS/SSH Git URL, GitHub blob/tree URL, or existing local path"
+            .to_string(),
+    })
+}
+
+fn is_github_host(host: &str) -> bool {
+    host == "github.com" || host == "www.github.com"
+}
+
+fn is_scp_like_git_url(input: &str) -> bool {
+    if input.contains("://") {
+        return false;
+    }
+
+    let (user_host, path) = match input.split_once(':') {
+        Some(parts) => parts,
+        None => return false,
+    };
+    let (user, host) = match user_host.split_once('@') {
+        Some(parts) => parts,
+        None => return false,
+    };
+
+    if user.is_empty() || host.is_empty() || path.is_empty() {
+        return false;
+    }
+
+    if path.contains(' ') {
+        return false;
+    }
+
+    path.contains('/') || path.ends_with(".git")
 }
 
 #[cfg(test)]
@@ -261,5 +413,29 @@ mod tests {
         assert!(parsed.is_skill_file);
         assert_eq!(parsed.skill_path(), "");
         assert_eq!(parsed.skill_name(), None);
+    }
+
+    #[test]
+    fn test_parse_repo_identifier_with_ssh_scp() {
+        let parsed = parse_repo_identifier("git@github.com:org/repo.git").unwrap();
+        assert_eq!(parsed.repo_url, "git@github.com:org/repo.git");
+        assert_eq!(parsed.git_ref, None);
+        assert_eq!(parsed.path, None);
+    }
+
+    #[test]
+    fn test_parse_repo_identifier_with_ssh_url() {
+        let parsed = parse_repo_identifier("ssh://git@github.com/org/repo.git").unwrap();
+        assert_eq!(parsed.repo_url, "ssh://git@github.com/org/repo.git");
+        assert_eq!(parsed.git_ref, None);
+        assert_eq!(parsed.path, None);
+    }
+
+    #[test]
+    fn test_parse_repo_identifier_with_github_repo_root() {
+        let parsed = parse_repo_identifier("https://github.com/owner/repo").unwrap();
+        assert_eq!(parsed.repo_url, "https://github.com/owner/repo.git");
+        assert_eq!(parsed.git_ref, None);
+        assert_eq!(parsed.path, None);
     }
 }

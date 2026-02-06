@@ -1,10 +1,9 @@
 use crate::catalog::Catalog;
 use crate::cli::{
-    AddArgs, AddAssetKind, CatalogGenerateArgs, InitArgs, ManifestFormat, StatusArgs, SyncArgs,
-    ValidateArgs,
+    AddArgs, CatalogGenerateArgs, InitArgs, ManifestFormat, StatusArgs, SyncArgs, ValidateArgs,
 };
 use crate::error::{ApsError, Result};
-use crate::github_url::parse_github_url;
+use crate::github_url::parse_repo_identifier;
 use crate::hooks::validate_cursor_hooks;
 use crate::install::{install_composite_entry, install_entry, InstallOptions, InstallResult};
 use crate::lockfile::{display_status, Lockfile};
@@ -113,47 +112,77 @@ fn update_gitignore(manifest_path: &Path) -> Result<()> {
 
 /// Execute the `aps add` command
 pub fn cmd_add(args: AddArgs) -> Result<()> {
-    // Parse the GitHub URL
-    let parsed = parse_github_url(&args.url)?;
+    let (asset_kind, repo_input, legacy_used) = parse_add_targets(&args.targets)?;
 
-    // Determine the entry ID
-    let entry_id = args.id.unwrap_or_else(|| {
-        parsed
-            .skill_name()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "unnamed-skill".to_string())
-    });
+    if legacy_used {
+        eprintln!(
+            "Deprecated: `aps add <repo_url_or_path>` is now `aps add <asset_type> <repo_url_or_path>`.\n\
+             Example: aps add agent_skill {}\n",
+            repo_input
+        );
+    }
 
-    // Convert CLI asset kind to manifest asset kind
-    let asset_kind = match args.kind {
-        AddAssetKind::AgentSkill => AssetKind::AgentSkill,
-        AddAssetKind::CursorRules => AssetKind::CursorRules,
-        AddAssetKind::CursorSkillsRoot => AssetKind::CursorSkillsRoot,
-        AddAssetKind::AgentsMd => AssetKind::AgentsMd,
-    };
+    let parsed = parse_repo_identifier(&repo_input)?;
 
-    // Get the skill path (strips SKILL.md if present)
-    let skill_path = parsed.skill_path().to_string();
+    if parsed.git_ref.is_some() && args.git_ref.is_some() {
+        return Err(ApsError::InvalidAddArguments {
+            message: "Git ref is already specified in the URL; remove --ref or use a repo URL"
+                .to_string(),
+        });
+    }
 
-    // Create the new entry
-    let new_entry = Entry {
-        id: entry_id.clone(),
-        kind: asset_kind.clone(),
-        source: Some(Source::Git {
-            repo: parsed.repo_url.clone(),
-            r#ref: parsed.git_ref.clone(),
-            shallow: true,
-            path: Some(skill_path.clone()),
-        }),
-        sources: Vec::new(),
-        dest: Some(format!(
+    if parsed.path.is_some() && args.path.is_some() {
+        return Err(ApsError::InvalidAddArguments {
+            message: "Path is already specified in the URL; remove --path or use a repo URL"
+                .to_string(),
+        });
+    }
+
+    let git_ref = args
+        .git_ref
+        .or(parsed.git_ref)
+        .unwrap_or_else(|| "auto".to_string());
+
+    let mut path = args.path.or(parsed.path);
+
+    if asset_kind == AssetKind::AgentSkill {
+        let raw_path = path.ok_or_else(|| ApsError::MissingAddPath {
+            asset_type: "agent_skill".to_string(),
+            hint: "Use a GitHub blob/tree URL or pass --path to the skill folder".to_string(),
+        })?;
+        path = Some(normalize_skill_path(&raw_path));
+    } else if path.is_none() {
+        path = default_path_for_kind(&asset_kind);
+    }
+
+    let entry_id = args
+        .id
+        .unwrap_or_else(|| derive_entry_id(&asset_kind, &parsed.repo_url, path.as_deref()));
+
+    let dest = if asset_kind == AssetKind::AgentSkill {
+        Some(format!(
             "{}/{}/",
             asset_kind
                 .default_dest()
                 .to_string_lossy()
                 .trim_end_matches('/'),
             entry_id
-        )),
+        ))
+    } else {
+        None
+    };
+
+    let new_entry = Entry {
+        id: entry_id.clone(),
+        kind: asset_kind.clone(),
+        source: Some(Source::Git {
+            repo: parsed.repo_url.clone(),
+            r#ref: git_ref,
+            shallow: true,
+            path,
+        }),
+        sources: Vec::new(),
+        dest,
         include: Vec::new(),
     };
 
@@ -199,8 +228,10 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
                             strict: false,
                             upgrade: false,
                         })?;
-                    } else {
+                    } else if asset_kind == AssetKind::AgentSkill {
                         println!("Run `aps sync` to install the skill.");
+                    } else {
+                        println!("Run `aps sync` to install the asset.");
                     }
 
                     return Ok(());
@@ -248,11 +279,120 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
             strict: false,
             upgrade: false,
         })?;
-    } else {
+    } else if asset_kind == AssetKind::AgentSkill {
         println!("Run `aps sync` to install the skill.");
+    } else {
+        println!("Run `aps sync` to install the asset.");
     }
 
     Ok(())
+}
+
+fn parse_add_targets(targets: &[String]) -> Result<(AssetKind, String, bool)> {
+    match targets.len() {
+        1 => {
+            let normalized = targets[0].trim().replace('-', "_");
+            if AssetKind::from_str(&normalized).is_ok() {
+                return Err(ApsError::InvalidAddArguments {
+                    message:
+                        "Missing repository identifier. Usage: aps add <asset_type> <repo_url_or_path>"
+                            .to_string(),
+                });
+            }
+            Ok((AssetKind::AgentSkill, targets[0].clone(), true))
+        }
+        2 => {
+            let kind = parse_asset_kind(&targets[0])?;
+            Ok((kind, targets[1].clone(), false))
+        }
+        _ => Err(ApsError::InvalidAddArguments {
+            message: "Expected either <repo_url_or_path> or <asset_type> <repo_url_or_path>"
+                .to_string(),
+        }),
+    }
+}
+
+fn parse_asset_kind(input: &str) -> Result<AssetKind> {
+    let normalized = input.trim().replace('-', "_");
+    let kind = AssetKind::from_str(&normalized)?;
+    if !matches!(
+        kind,
+        AssetKind::AgentSkill
+            | AssetKind::CursorRules
+            | AssetKind::CursorSkillsRoot
+            | AssetKind::AgentsMd
+    ) {
+        return Err(ApsError::InvalidAddArguments {
+            message: format!(
+                "Asset type '{}' is not supported by `aps add` yet. Supported types: agent_skill, cursor_rules, cursor_skills_root, agents_md",
+                normalized
+            ),
+        });
+    }
+    Ok(kind)
+}
+
+fn normalize_skill_path(path: &str) -> String {
+    let path = path.trim();
+    if path.eq_ignore_ascii_case("skill.md") {
+        return "".to_string();
+    }
+    if let Some(stripped) = path.strip_suffix("/SKILL.md") {
+        return stripped.to_string();
+    }
+    if let Some(stripped) = path.strip_suffix("/skill.md") {
+        return stripped.to_string();
+    }
+    path.to_string()
+}
+
+fn default_path_for_kind(kind: &AssetKind) -> Option<String> {
+    match kind {
+        AssetKind::CursorRules => Some(".cursor/rules".to_string()),
+        AssetKind::CursorHooks => Some(".cursor".to_string()),
+        AssetKind::CursorSkillsRoot => Some(".cursor/skills".to_string()),
+        AssetKind::AgentsMd => Some("AGENTS.md".to_string()),
+        AssetKind::AgentSkill | AssetKind::CompositeAgentsMd => None,
+    }
+}
+
+fn derive_entry_id(kind: &AssetKind, repo_url: &str, path: Option<&str>) -> String {
+    match kind {
+        AssetKind::AgentSkill => path
+            .and_then(|p| p.rsplit('/').next())
+            .filter(|p| !p.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| repo_basename(repo_url))
+            .unwrap_or_else(|| "unnamed-skill".to_string()),
+        _ => repo_basename(repo_url)
+            .or_else(|| {
+                path.and_then(|p| p.rsplit('/').next())
+                    .filter(|p| !p.is_empty())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "unnamed-asset".to_string()),
+    }
+}
+
+fn repo_basename(repo_url: &str) -> Option<String> {
+    if let Ok(parsed) = url::Url::parse(repo_url) {
+        let name = parsed
+            .path_segments()
+            .and_then(|segments| segments.filter(|s| !s.is_empty()).last())
+            .map(|s| s.to_string())?;
+        return Some(name.trim_end_matches(".git").to_string());
+    }
+
+    if let Some((_, path)) = repo_url.split_once(':') {
+        let name = path.rsplit('/').next().map(|s| s.to_string())?;
+        return Some(name.trim_end_matches(".git").to_string());
+    }
+
+    let name = std::path::Path::new(repo_url)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())?;
+    Some(name.trim_end_matches(".git").to_string())
 }
 
 /// Execute the `aps sync` command

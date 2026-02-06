@@ -109,17 +109,23 @@ cargo install aps --force
 
    This creates a `aps.yaml` manifest file with an example entry.
 
-2. **Add skills directly from GitHub URLs:**
+2. **Add assets directly from git repositories:**
 
    ```bash
    # Add a skill from a GitHub URL - automatically syncs the skill
-   aps add https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
+   aps add agent_skill https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
 
    # Or use the folder URL (SKILL.md is auto-detected)
-   aps add https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
+   aps add agent_skill https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
+
+   # Add Cursor rules from a private repo (SSH)
+   aps add cursor_rules git@github.com:org/private-rules.git
+
+   # Add a private skill with an explicit path
+   aps add agent_skill git@github.com:org/private-skills.git --path skills/refactor-module
    ```
 
-   This parses the GitHub URL, adds an entry to `aps.yaml`, and syncs **only that skill** immediately (other entries are not affected).
+   This parses the repository identifier, adds an entry to `aps.yaml`, and syncs **only that asset** immediately (other entries are not affected).
 
 3. **Or manually edit the manifest** to define your assets:
 
@@ -151,7 +157,7 @@ cargo install aps --force
 | Command        | Description                                       |
 | -------------- | ------------------------------------------------- |
 | `aps init`     | Create a new manifest file and update .gitignore  |
-| `aps add`      | Add a skill from a GitHub URL and sync it         |
+| `aps add`      | Add an asset from a git repo and sync it          |
 | `aps sync`     | Sync all entries from manifest and install assets |
 | `aps validate` | Validate manifest schema and check sources        |
 | `aps status`   | Display last sync information from lockfile       |
@@ -163,8 +169,10 @@ cargo install aps --force
 
 ### Add Options
 
-- `--id <name>` - Custom entry ID (defaults to skill folder name)
-- `--kind <type>` - Asset kind: `agent-skill`, `cursor-rules`, `cursor-skills-root`, `agents-md` (default: `agent-skill`)
+- `aps add <asset_type> <repo_url_or_path>` - Asset types: `agent_skill`, `cursor_rules`, `cursor_skills_root`, `agents_md`
+- `--id <name>` - Custom entry ID (defaults to repo or path name)
+- `--path <path>` - Path within the repository (required for `agent_skill` when using SSH/HTTPS repo URLs)
+- `--ref <ref>` - Git ref (branch/tag/commit) to use
 - `--no-sync` - Only add to manifest, don't sync immediately
 
 ### Sync Options

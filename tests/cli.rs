@@ -1174,6 +1174,7 @@ fn add_creates_manifest_entry_with_no_sync() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module",
             "--no-sync",
         ])
@@ -1207,6 +1208,7 @@ fn add_parses_skill_md_url_correctly() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md",
             "--no-sync",
         ])
@@ -1235,6 +1237,7 @@ fn add_with_custom_id() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/main/path/to/skill",
             "--id",
             "my-custom-skill",
@@ -1274,6 +1277,7 @@ fn add_to_existing_manifest() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/main/path/to/new-skill",
             "--no-sync",
         ])
@@ -1309,6 +1313,7 @@ fn add_duplicate_id_fails() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/main/path/to/duplicate-skill",
             "--no-sync",
         ])
@@ -1319,23 +1324,6 @@ fn add_duplicate_id_fails() {
 }
 
 #[test]
-fn add_invalid_github_url_fails() {
-    let temp = assert_fs::TempDir::new().unwrap();
-
-    // Non-GitHub URL
-    aps()
-        .args([
-            "add",
-            "https://gitlab.com/owner/repo/blob/main/path",
-            "--no-sync",
-        ])
-        .current_dir(&temp)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("github.com"));
-}
-
-#[test]
 fn add_invalid_url_format_fails() {
     let temp = assert_fs::TempDir::new().unwrap();
 
@@ -1343,6 +1331,7 @@ fn add_invalid_url_format_fails() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/commits/main/path",
             "--no-sync",
         ])
@@ -1353,6 +1342,116 @@ fn add_invalid_url_format_fails() {
 }
 
 #[test]
+fn add_invalid_repo_identifier_fails() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args(["add", "agent_skill", "not-a-repo", "--no-sync"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Expected an HTTPS/SSH Git URL"));
+}
+
+#[test]
+fn add_cursor_rules_from_https_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "cursor_rules",
+            "https://github.com/owner/repo",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: cursor_rules"));
+    manifest.assert(predicate::str::contains(
+        "repo: https://github.com/owner/repo.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: auto"));
+    manifest.assert(predicate::str::contains("path: .cursor/rules"));
+}
+
+#[test]
+fn add_cursor_rules_from_ssh_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "cursor_rules",
+            "git@github.com:org/repo.git",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: cursor_rules"));
+    manifest.assert(predicate::str::contains(
+        "repo: git@github.com:org/repo.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: auto"));
+    manifest.assert(predicate::str::contains("path: .cursor/rules"));
+}
+
+#[test]
+fn add_cursor_skills_root_from_ssh_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "cursor_skills_root",
+            "git@github.com:org/skills.git",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: cursor_skills_root"));
+    manifest.assert(predicate::str::contains(
+        "repo: git@github.com:org/skills.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: auto"));
+    manifest.assert(predicate::str::contains("path: .cursor/skills"));
+}
+
+#[test]
+fn add_agent_skill_from_ssh_with_path() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "agent_skill",
+            "git@github.com:org/private-skills.git",
+            "--path",
+            "skills/my-skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: agent_skill"));
+    manifest.assert(predicate::str::contains(
+        "repo: git@github.com:org/private-skills.git",
+    ));
+    manifest.assert(predicate::str::contains("path: skills/my-skill"));
+    manifest.assert(predicate::str::contains("dest: .claude/skills/my-skill/"));
+}
+
+#[test]
 fn add_with_tree_url() {
     let temp = assert_fs::TempDir::new().unwrap();
 
@@ -1360,6 +1459,7 @@ fn add_with_tree_url() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/tree/main/path/to/skill",
             "--no-sync",
         ])
@@ -1379,6 +1479,7 @@ fn add_with_different_ref() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/v1.2.3/path/to/skill",
             "--no-sync",
         ])
@@ -1396,8 +1497,9 @@ fn add_help_shows_usage() {
         .args(["add", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("GitHub URL"))
+        .stdout(predicate::str::contains("ASSET_TYPE"))
         .stdout(predicate::str::contains("--id"))
-        .stdout(predicate::str::contains("--kind"))
+        .stdout(predicate::str::contains("--path"))
+        .stdout(predicate::str::contains("--ref"))
         .stdout(predicate::str::contains("--no-sync"));
 }

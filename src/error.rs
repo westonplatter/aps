@@ -164,6 +164,18 @@ pub enum ApsError {
     #[error("Invalid GitHub URL: {url}")]
     #[diagnostic(code(aps::add::invalid_github_url), help("{reason}"))]
     InvalidGitHubUrl { url: String, reason: String },
+
+    #[error("Invalid repository identifier: {value}")]
+    #[diagnostic(code(aps::add::invalid_repo), help("{reason}"))]
+    InvalidRepoSpecifier { value: String, reason: String },
+
+    #[error("Invalid add arguments")]
+    #[diagnostic(code(aps::add::invalid_args), help("{message}"))]
+    InvalidAddArguments { message: String },
+
+    #[error("Asset type '{asset_type}' requires a path within the repository")]
+    #[diagnostic(code(aps::add::missing_path), help("{hint}"))]
+    MissingAddPath { asset_type: String, hint: String },
 }
 
 impl ApsError {

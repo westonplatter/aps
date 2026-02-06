@@ -23,7 +23,7 @@ pub enum Commands {
     /// Initialize a new manifest file
     Init(InitArgs),
 
-    /// Add a skill from a GitHub URL to the manifest
+    /// Add an asset from a git repository to the manifest
     Add(AddArgs),
 
     /// Sync and install assets from manifest sources
@@ -52,18 +52,26 @@ pub struct InitArgs {
 
 #[derive(Parser, Debug)]
 pub struct AddArgs {
-    /// GitHub URL to a skill folder (e.g., https://github.com/owner/repo/blob/main/path/to/skill)
-    /// or direct URL to a SKILL.md file
-    #[arg(value_name = "URL")]
-    pub url: String,
+    /// Asset type and repository identifier
+    ///
+    /// Asset types: agent_skill, cursor_rules, cursor_skills_root, agents_md
+    ///
+    /// New syntax: aps add <asset_type> <repo_url_or_path>
+    /// Legacy syntax: aps add <repo_url_or_path> (defaults to agent_skill)
+    #[arg(value_name = "ASSET_TYPE REPO", num_args = 1..=2)]
+    pub targets: Vec<String>,
 
-    /// Custom entry ID (defaults to skill folder name)
+    /// Custom entry ID (defaults to repo or path name)
     #[arg(long)]
     pub id: Option<String>,
 
-    /// Asset kind (defaults to agent_skill)
-    #[arg(long, value_enum, default_value = "agent-skill")]
-    pub kind: AddAssetKind,
+    /// Path within the repository (overrides any path from a GitHub URL)
+    #[arg(long)]
+    pub path: Option<String>,
+
+    /// Git ref (branch/tag/commit) to use (defaults to auto for repo URLs)
+    #[arg(long = "ref")]
+    pub git_ref: Option<String>,
 
     /// Path to the manifest file
     #[arg(long)]
@@ -72,19 +80,6 @@ pub struct AddArgs {
     /// Skip syncing after adding (only update manifest)
     #[arg(long)]
     pub no_sync: bool,
-}
-
-#[derive(ValueEnum, Clone, Debug, Default)]
-pub enum AddAssetKind {
-    #[default]
-    #[value(name = "agent-skill")]
-    AgentSkill,
-    #[value(name = "cursor-rules")]
-    CursorRules,
-    #[value(name = "cursor-skills-root")]
-    CursorSkillsRoot,
-    #[value(name = "agents-md")]
-    AgentsMd,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]
