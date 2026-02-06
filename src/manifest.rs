@@ -91,6 +91,8 @@ impl Entry {
 pub enum AssetKind {
     /// Cursor rules directory
     CursorRules,
+    /// Cursor hooks directory
+    CursorHooks,
     /// Cursor skills root directory
     CursorSkillsRoot,
     /// AGENTS.md file
@@ -106,6 +108,7 @@ impl AssetKind {
     pub fn default_dest(&self) -> PathBuf {
         match self {
             AssetKind::CursorRules => PathBuf::from(".cursor/rules"),
+            AssetKind::CursorHooks => PathBuf::from(".cursor/hooks"),
             AssetKind::CursorSkillsRoot => PathBuf::from(".cursor/skills"),
             AssetKind::AgentsMd => PathBuf::from("AGENTS.md"),
             AssetKind::AgentSkill => PathBuf::from(".claude/skills"),
@@ -118,6 +121,7 @@ impl AssetKind {
     pub fn from_str(s: &str) -> Result<Self> {
         match s {
             "cursor_rules" => Ok(AssetKind::CursorRules),
+            "cursor_hooks" => Ok(AssetKind::CursorHooks),
             "cursor_skills_root" => Ok(AssetKind::CursorSkillsRoot),
             "agents_md" => Ok(AssetKind::AgentsMd),
             "agent_skill" => Ok(AssetKind::AgentSkill),

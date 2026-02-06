@@ -195,9 +195,11 @@ pub struct Entry {
 
 pub enum AssetKind {
     CursorRules,
+    CursorHooks,
     CursorSkillsRoot,
     AgentsMd,
     AgentSkill,
+    CompositeAgentsMd,
 }
 ```
 

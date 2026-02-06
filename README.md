@@ -1,6 +1,4 @@
-<!-- trunk-ignore-all(markdownlint/MD033): Inline HTML used for centered header layout -->
-<!-- trunk-ignore-all(markdownlint/MD041): Heading follows centered div intentionally -->
-<div align="center">
+<div align="center"> <!-- markdownlint-disable MD033 MD041 -->
 
 # Agentic Prompt Sync (aps)
 
@@ -74,7 +72,7 @@ cargo build --release
 
 To update `aps` to the latest version, use the same method you used to install it.
 
-### Quick Install (macOS/Linux)
+### Quick Update (macOS/Linux)
 
 Re-run the install script to download and install the latest version:
 
@@ -82,9 +80,7 @@ Re-run the install script to download and install the latest version:
 curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
 ```
 
-### Download Binary
-
-Download the latest binary for your platform from the [Releases page](https://github.com/westonplatter/agentic-prompt-sync/releases) and replace your existing installation.
+Or download the latest binary for your platform from the [Releases page](https://github.com/westonplatter/agentic-prompt-sync/releases) and replace your existing installation.
 
 ### Cargo Update
 
@@ -106,48 +102,48 @@ cargo install aps --force
 
 1. **Initialize a manifest** in your project:
 
-```bash
-aps init
-```
+   ```bash
+   aps init
+   ```
 
-This creates a `aps.yaml` manifest file with an example entry.
+   This creates a `aps.yaml` manifest file with an example entry.
 
 2. **Add skills directly from GitHub URLs:**
 
-```bash
-# Add a skill from a GitHub URL - automatically syncs the skill
-aps add https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
+   ```bash
+   # Add a skill from a GitHub URL - automatically syncs the skill
+   aps add https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
 
-# Or use the folder URL (SKILL.md is auto-detected)
-aps add https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
-```
+   # Or use the folder URL (SKILL.md is auto-detected)
+   aps add https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
+   ```
 
-This parses the GitHub URL, adds an entry to `aps.yaml`, and syncs **only that skill** immediately (other entries are not affected).
+   This parses the GitHub URL, adds an entry to `aps.yaml`, and syncs **only that skill** immediately (other entries are not affected).
 
 3. **Or manually edit the manifest** to define your assets:
 
-```yaml
-entries:
-  - id: my-agents
-    kind: agents_md
-    source:
-      type: filesystem
-      root: $HOME
-      path: personal-generic-AGENTS.md
-    dest: ./AGENTS.md
-```
+   ```yaml
+   entries:
+     - id: my-agents
+       kind: agents_md
+       source:
+         type: filesystem
+         root: $HOME
+         path: personal-generic-AGENTS.md
+       dest: ./AGENTS.md
+   ```
 
 4. **Sync and install** your assets:
 
-```bash
-aps sync
-```
+   ```bash
+   aps sync
+   ```
 
 5. **Check status** of synced assets:
 
-```bash
-aps status
-```
+   ```bash
+   aps status
+   ```
 
 ## Commands
 
@@ -257,6 +253,7 @@ entries:
 | `agents_md`           | Single AGENTS.md file                  | `./AGENTS.md`       |
 | `composite_agents_md` | Merge multiple markdown files into one | `./AGENTS.md`       |
 | `cursor_rules`        | Directory of Cursor rules              | `./.cursor/rules/`  |
+| `cursor_hooks`        | Directory of Cursor hooks              | `./.cursor/hooks/`  |
 | `cursor_skills_root`  | Directory with skill subdirs           | `./.cursor/skills/` |
 | `agent_skill`         | Claude agent skill directory           | `./.claude/skills/` |
 

@@ -33,6 +33,7 @@ entries:
 **AssetKind** values:
 
 - `cursor_rules` - Individual `.mdc` rule files
+- `cursor_hooks` - Individual hook scripts
 - `cursor_skills_root` - Skill folders for Cursor
 - `agents_md` - AGENTS.md files
 - `agent_skill` - Agent skill folders (per agentskills.io spec)
