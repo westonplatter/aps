@@ -6,6 +6,7 @@ mod commands;
 mod compose;
 mod error;
 mod github_url;
+mod hooks;
 mod install;
 mod lockfile;
 mod manifest;

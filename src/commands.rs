@@ -5,6 +5,7 @@ use crate::cli::{
 };
 use crate::error::{ApsError, Result};
 use crate::github_url::parse_github_url;
+use crate::hooks::validate_cursor_hooks;
 use crate::install::{install_composite_entry, install_entry, InstallOptions, InstallResult};
 use crate::lockfile::{display_status, Lockfile};
 use crate::manifest::{
@@ -544,7 +545,14 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
                         )?;
                         warnings.extend(skill_warnings);
                     }
-
+                    if entry.kind == AssetKind::CursorHooks {
+                        let hook_warnings =
+                            validate_cursor_hooks(&resolved.source_path, args.strict)?;
+                        for warning in &hook_warnings {
+                            println!("       Warning: {}", warning);
+                        }
+                        warnings.extend(hook_warnings);
+                    }
                     // Format output based on source type
                     if let Some(git_info) = &resolved.git_info {
                         println!(
