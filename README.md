@@ -41,7 +41,7 @@ Or use curl,
 ```bash
 curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
 
-# or override the install locatiion
+# or override the install location
 APS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
 ```
 
