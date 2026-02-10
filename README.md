@@ -191,6 +191,29 @@ When you run `aps sync`:
 
 Note: Stale entry cleanup only happens during a full sync. When using `--only <id>` to sync specific entries, other lockfile entries are preserved.
 
+### Example Sync Output
+
+When syncing a manifest with multiple entries, `aps sync` now shows per-entry progress so you can see work as it happens:
+
+```bash
+$ aps sync
+
+(1/3) Syncing my-agents from filesystem $HOME/agents-md-partials (AGENTS.md)...
+(1/3) Finished my-agents in 0.12s [synced]
+(2/3) Syncing composite-agents from 3 composite source(s)...
+(2/3) Finished composite-agents in 0.45s [copied]
+(3/3) Syncing company-rules from git repo git@github.com:your-username/dotfiles.git...
+(3/3) Finished company-rules in 1.23s [synced]
+
+Syncing from aps.yaml
+
+  ✓ my-agents           → ./AGENTS.md         [synced]
+  · composite-agents    → ./AGENTS.md         [current]
+  ✓ company-rules       → ./.cursor/rules/    [synced]
+
+2 synced, 1 current
+```
+
 ## Configuration
 
 ### Manifest File (`aps.yaml`)

@@ -18,10 +18,8 @@ entries:
       type: git
       repo: https://github.com/anthropics/skills.git
       ref: main
-      path: skills
-    include:
-      - skill-creator
-    dest: ./.claude/skills/
+      path: skills/skill-creator
+    dest: ./.claude/skills/skill-creator
 
   - id: address-github-comments
     kind: agent_skill
@@ -29,7 +27,5 @@ entries:
       type: git
       repo: https://github.com/sickn33/antigravity-awesome-skills.git
       ref: main
-      path: skills
-    include:
-      - address-github-comments
-    dest: ./.claude/skills/
+      path: skills/address-github-comments
+    dest: ./.claude/skills/address-github-comments

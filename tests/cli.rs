@@ -414,6 +414,75 @@ fn sync_with_symlink_creates_symlink() {
     }
 }
 
+#[test]
+fn sync_shows_progress_per_entry() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create source files
+    let source_dir = temp.child("source");
+    source_dir.create_dir_all().unwrap();
+    source_dir
+        .child("AGENTS-one.md")
+        .write_str("# One\n")
+        .unwrap();
+    source_dir
+        .child("AGENTS-two.md")
+        .write_str("# Two\n")
+        .unwrap();
+
+    // Create manifest with two entries so we can see (1/2), (2/2)
+    let manifest = format!(
+        r#"entries:
+  - id: first
+    kind: agents_md
+    source:
+      type: filesystem
+      root: {root}
+      path: AGENTS-one.md
+    dest: ./AGENTS-one.md
+  - id: second
+    kind: agents_md
+    source:
+      type: filesystem
+      root: {root}
+      path: AGENTS-two.md
+    dest: ./AGENTS-two.md
+"#,
+        root = source_dir.path().display()
+    );
+
+    temp.child("aps.yaml").write_str(&manifest).unwrap();
+
+    let output = aps()
+        .arg("sync")
+        .current_dir(&temp)
+        .output()
+        .expect("failed to run aps sync");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(output.status.success(), "aps sync failed: {}", stdout);
+
+    // Ensure progress markers are present
+    assert!(
+        stdout.contains("(1/2)"),
+        "expected progress for first entry, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("(2/2)"),
+        "expected progress for second entry, got: {stdout}"
+    );
+
+    // Progress should appear before the final sync summary header
+    let first_progress = stdout.find("(1/2)").unwrap();
+    let header_pos = stdout
+        .find("Syncing from")
+        .expect("expected 'Syncing from' header in output");
+    assert!(
+        first_progress < header_pos,
+        "expected progress lines before summary header, got: {stdout}"
+    );
+}
+
 // ============================================================================
 // Hooks Tests
 // ============================================================================

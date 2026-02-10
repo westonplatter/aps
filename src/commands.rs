@@ -14,6 +14,7 @@ use crate::manifest::{
 use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
 use crate::sources::GitCloneCache;
 use crate::sync_output::{print_sync_results, print_sync_summary, SyncDisplayItem, SyncStatus};
+use console::{style, Style};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -288,6 +289,56 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
     Ok(())
 }
 
+fn sync_status_for_result(result: &InstallResult) -> SyncStatus {
+    if !result.warnings.is_empty() {
+        SyncStatus::Warning
+    } else if result.skipped_no_change && result.upgrade_available.is_some() {
+        SyncStatus::Upgradable
+    } else if result.skipped_no_change {
+        SyncStatus::Current
+    } else if result.was_symlink {
+        SyncStatus::Synced
+    } else {
+        SyncStatus::Copied
+    }
+}
+
+fn sync_status_label(status: SyncStatus) -> &'static str {
+    match status {
+        SyncStatus::Synced => "synced",
+        SyncStatus::Copied => "copied",
+        SyncStatus::Current => "current",
+        SyncStatus::Upgradable => "upgrade available",
+        SyncStatus::Warning => "warning",
+        SyncStatus::Error => "error",
+    }
+}
+
+fn progress_style_for_status(status: SyncStatus) -> Style {
+    match status {
+        SyncStatus::Synced | SyncStatus::Copied => Style::new().green(),
+        SyncStatus::Current => Style::new().dim(),
+        SyncStatus::Upgradable => Style::new().color256(208),
+        SyncStatus::Warning => Style::new().yellow(),
+        SyncStatus::Error => Style::new().red(),
+    }
+}
+
+fn format_entry_source(entry: &Entry) -> String {
+    if entry.is_composite() {
+        return format!("{} composite source(s)", entry.sources.len());
+    }
+
+    match &entry.source {
+        Some(Source::Git { repo, .. }) => format!("git repo {}", repo),
+        Some(Source::Filesystem { root, path, .. }) => match path {
+            Some(p) => format!("filesystem {} ({})", root, p),
+            None => format!("filesystem {}", root),
+        },
+        None => "no source configured".to_string(),
+    }
+}
+
 fn parse_add_targets(targets: &[String]) -> Result<(AssetKind, String, bool)> {
     match targets.len() {
         1 => {
@@ -443,16 +494,64 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     // Detect orphaned paths (destinations that changed)
     let orphans = detect_orphaned_paths(&entries_to_install, &lockfile, &base_dir);
 
-    // Install selected entries
+    // Install selected entries with progressive feedback
+    let total = entries_to_install.len();
     let mut results: Vec<InstallResult> = Vec::new();
-    for entry in &entries_to_install {
+    for (index, entry) in entries_to_install.iter().enumerate() {
+        let ordinal = index + 1;
+        let source_desc = format_entry_source(entry);
+        println!(
+            "({}/{}) {} {} {}",
+            ordinal,
+            total,
+            style("Syncing").dim(),
+            style(&entry.id).cyan().bold(),
+            style(format!("from {}...", source_desc)).dim(),
+        );
+        std::io::stdout().flush().ok();
+
+        let start = std::time::Instant::now();
+
         // Use composite install for composite entries, regular install otherwise
         let result = if entry.is_composite() {
-            install_composite_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)?
+            install_composite_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)
         } else {
-            install_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)?
+            install_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)
         };
-        results.push(result);
+
+        match result {
+            Ok(result) => {
+                let elapsed = start.elapsed();
+                let status = sync_status_for_result(&result);
+                let label = sync_status_label(status);
+                let status_style = progress_style_for_status(status);
+                println!(
+                    "({}/{}) {} {} {} {}",
+                    ordinal,
+                    total,
+                    style("Finished").dim(),
+                    style(&entry.id).cyan().bold(),
+                    style(format!("in {:.2?}", elapsed)).dim(),
+                    status_style.apply_to(format!("[{}]", label)),
+                );
+                std::io::stdout().flush().ok();
+                results.push(result);
+            }
+            Err(err) => {
+                let elapsed = start.elapsed();
+                let error_style = Style::new().red();
+                eprintln!(
+                    "({}/{}) {} {} {}: {}",
+                    ordinal,
+                    total,
+                    error_style.apply_to("Failed"),
+                    style(&entry.id).cyan().bold(),
+                    style(format!("after {:.2?}", elapsed)).dim(),
+                    error_style.apply_to(err.to_string()),
+                );
+                return Err(err);
+            }
+        }
     }
 
     // Cleanup orphaned paths after successful install
@@ -490,17 +589,7 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     let display_items: Vec<SyncDisplayItem> = results
         .iter()
         .map(|r| {
-            let status = if !r.warnings.is_empty() {
-                SyncStatus::Warning
-            } else if r.skipped_no_change && r.upgrade_available.is_some() {
-                SyncStatus::Upgradable
-            } else if r.skipped_no_change {
-                SyncStatus::Current
-            } else if r.was_symlink {
-                SyncStatus::Synced
-            } else {
-                SyncStatus::Copied
-            };
+            let status = sync_status_for_result(r);
 
             let mut item = SyncDisplayItem::new(
                 r.id.clone(),
