@@ -185,9 +185,9 @@ cargo install aps --force
 
 When you run `aps sync`:
 
-1. **Entries are synced** - Each entry in `aps.yaml` is installed to its destination (git sources reuse cached clones for speed)
-2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in `aps.yaml` are automatically removed
-3. **Lockfile is saved** - The updated lockfile is written to disk
+1. **Entries are synced** - Each entry in your manifest (by default `aps.yaml`) is installed to its destination (git sources reuse cached clones for speed)
+2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in the manifest are automatically removed
+3. **Lockfile is saved** - The updated lockfile is written to disk, next to the manifest
 
 Note: Stale entry cleanup only happens during a full sync. When using `--only <id>` to sync specific entries, other lockfile entries are preserved.
 
@@ -302,9 +302,19 @@ Key features:
 - **Order preserved**: Files are merged in the order specified in `sources`
 - **Auto-generated header**: Output includes a comment indicating it was composed by aps
 
-### Lockfile (`aps.lock.yaml`)
+### Lockfile (manifest-based)
 
-The lockfile tracks installed assets and is automatically created/updated by `aps sync`. **This file should be committed to version control** to ensure reproducible installations across your team. It stores:
+The lockfile tracks installed assets and is automatically created/updated by `aps sync`. **This file should be committed to version control** to ensure reproducible installations across your team.
+
+The lockfile name is derived from the manifest filename:
+
+- `aps.yaml` → `aps.lock.yaml`
+- `aps-rules.yaml` → `aps-rules.lock.yaml`
+- `custom` → `custom.lock.yaml`
+
+This means you can keep multiple manifests in the same repository, each with its own lockfile, without conflicts.
+
+Each lockfile stores:
 
 - Source information
 - Destination paths
@@ -312,6 +322,8 @@ The lockfile tracks installed assets and is automatically created/updated by `ap
 - Content checksum (SHA256)
 
 **Environment Variables Are Preserved**: Unlike other package managers (npm, uv, bundler) that expand environment variables to concrete paths, `aps` preserves shell variables like `$HOME` in the lockfile. This makes lockfiles portable across different machines and users who have the same relative directory structure.
+
+**Legacy lockfiles**: For backward compatibility, `aps` still recognizes historical lockfile names (`aps.lock.yaml`, `aps.manifest.lock`) when loading. On the next successful `aps sync`, these legacy files are migrated to the manifest-based name and the old files are cleaned up.
 
 ## Examples
 
