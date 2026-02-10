@@ -120,6 +120,32 @@ fn sync_with_empty_manifest_succeeds() {
 }
 
 #[test]
+fn sync_with_custom_manifest_uses_manifest_based_lockfile_name() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Use a non-default manifest filename.
+    let manifest_name = "aps-custom.yaml";
+    temp.child(manifest_name)
+        .write_str("entries: []\n")
+        .unwrap();
+
+    aps()
+        .args(["sync", "--manifest", manifest_name])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Lockfile name should be derived from the manifest filename.
+    temp.child("aps-custom.lock.yaml")
+        .assert(predicate::path::exists());
+
+    // The historical default lockfile name should not be created when a custom
+    // manifest is explicitly used.
+    temp.child("aps.lock.yaml")
+        .assert(predicate::path::missing());
+}
+
+#[test]
 fn sync_dry_run_does_not_create_lockfile() {
     let temp = assert_fs::TempDir::new().unwrap();
 
@@ -244,6 +270,34 @@ fn status_works_after_sync() {
 
     // Then status should work
     aps().arg("status").current_dir(&temp).assert().success();
+}
+
+#[test]
+fn status_with_custom_manifest_uses_matching_lockfile() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let manifest_name = "aps-status.yaml";
+    temp.child(manifest_name)
+        .write_str("entries: []\n")
+        .unwrap();
+
+    // First sync to create the manifest-based lockfile.
+    aps()
+        .args(["sync", "--manifest", manifest_name])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Ensure the derived lockfile exists.
+    temp.child("aps-status.lock.yaml")
+        .assert(predicate::path::exists());
+
+    // Then status should succeed when pointing at the same manifest.
+    aps()
+        .args(["status", "--manifest", manifest_name])
+        .current_dir(&temp)
+        .assert()
+        .success();
 }
 
 // ============================================================================
