@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.10](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.9...aps-v0.1.10) (2026-02-13)
+
+
+### Features
+
+* sync Cursor hooks ([#51](https://github.com/westonplatter/agentic-prompt-sync/issues/51)) ([dbe440b](https://github.com/westonplatter/agentic-prompt-sync/commit/dbe440b6ab4ba71597aaf75f5219d29744489423))
+
+
+### Bug Fixes
+
+* Handle root-level SKILL.md files in skill_path() ([#60](https://github.com/westonplatter/agentic-prompt-sync/issues/60)) ([42c7399](https://github.com/westonplatter/agentic-prompt-sync/commit/42c7399f3b67c60b6886e03f25490d5a21c803c4))
+
 ## [0.1.9](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.8...aps-v0.1.9) (2026-02-04)
 
 
