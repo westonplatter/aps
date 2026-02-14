@@ -1,5 +1,4 @@
 use crate::error::{ApsError, Result};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fmt;
@@ -189,9 +188,6 @@ pub struct LockedEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
 
-    /// Timestamp of last update
-    pub last_updated_at: DateTime<Utc>,
-
     /// Content checksum
     pub checksum: String,
 
@@ -223,7 +219,6 @@ impl LockedEntry {
             dest: dest.to_string(),
             resolved_ref: None,
             commit: None,
-            last_updated_at: Utc::now(),
             checksum,
             is_symlink,
             target_path,
@@ -245,7 +240,6 @@ impl LockedEntry {
             dest: dest.to_string(),
             resolved_ref: Some(resolved_ref),
             commit: Some(commit),
-            last_updated_at: Utc::now(),
             checksum,
             is_symlink: false,
             target_path: None,
@@ -260,7 +254,6 @@ impl LockedEntry {
             dest: dest.to_string(),
             resolved_ref: None,
             commit: None,
-            last_updated_at: Utc::now(),
             checksum,
             is_symlink: false,
             target_path: None,
@@ -460,10 +453,6 @@ pub fn display_status(lockfile: &Lockfile) {
                 println!("Items:        {} symlinked", entry.symlinked_items.len());
             }
         }
-        println!(
-            "Last updated: {}",
-            entry.last_updated_at.format("%Y-%m-%d %H:%M:%S UTC")
-        );
         println!("Checksum:     {}", entry.checksum);
         println!("{}", "-".repeat(80));
     }

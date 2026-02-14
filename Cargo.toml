@@ -33,8 +33,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 
-# Date/time for timestamps
-chrono = { version = "0.4", features = ["serde"] }
+# Date/time for backup timestamps
+chrono = "0.4"
 
 # Checksum computation
 sha2 = "0.10"

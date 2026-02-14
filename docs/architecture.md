@@ -219,7 +219,6 @@ pub struct LockedEntry {
     pub checksum: String,                  // Content SHA256
     pub is_symlink: bool,                  // Was symlinked?
     pub target_path: Option<String>,       // Symlink target
-    pub last_updated_at: DateTime<Utc>,
     pub symlinked_items: Vec<String>,      // Filtered symlinks
 }
 ```
@@ -464,7 +463,7 @@ This produces formatted, colored output with error codes and actionable help tex
 | **Log Filter**    | `tracing-subscriber` | 0.3       | Log level filtering                 |
 | **Serialization** | `serde`              | 1         | Serialize/deserialize traits        |
 | **YAML**          | `serde_yaml`         | 0.9       | YAML parsing                        |
-| **Timestamps**    | `chrono`             | 0.4       | Date/time for lockfile              |
+| **Timestamps**    | `chrono`             | 0.4       | Date/time for backups               |
 | **Checksums**     | `sha2`, `hex`        | 0.10, 0.4 | SHA256 computation                  |
 | **File Walking**  | `walkdir`            | 2         | Recursive directory traversal       |
 | **Temp Files**    | `tempfile`           | 3         | Temporary directories for git       |
@@ -534,5 +533,4 @@ entries:
     commit: "abc123..."
     checksum: "sha256:..."
     is_symlink: false
-    last_updated_at: "2024-01-15T10:30:00Z"
 ```
