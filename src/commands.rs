@@ -3,6 +3,7 @@ use crate::cli::{
     AddArgs, AddAssetKind, CatalogGenerateArgs, InitArgs, ManifestFormat, StatusArgs, SyncArgs,
     ValidateArgs,
 };
+use crate::discover::{discover_skills_in_repo, prompt_skill_selection};
 use crate::error::{ApsError, Result};
 use crate::github_url::parse_github_url;
 use crate::hooks::validate_cursor_hooks;
@@ -114,6 +115,15 @@ fn update_gitignore(manifest_path: &Path) -> Result<()> {
 pub fn cmd_add(args: AddArgs) -> Result<()> {
     // Parse the GitHub URL
     let parsed = parse_github_url(&args.url)?;
+
+    // Use the discovery flow if:
+    // - This is a repo-level URL (no specific skill path), OR
+    // - The user explicitly requested --all (discovers skills within the given path)
+    if parsed.is_repo_level || args.all {
+        return cmd_add_discover(args, &parsed.repo_url, &parsed.git_ref, &parsed.path);
+    }
+
+    // --- Single-skill flow (existing behavior) ---
 
     // Determine the entry ID
     let entry_id = args.id.unwrap_or_else(|| {
@@ -249,6 +259,206 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
         })?;
     } else {
         println!("Run `aps sync` to install the skill.");
+    }
+
+    Ok(())
+}
+
+/// Execute the discovery flow for repo-level `aps add` commands.
+/// Clones the repository, discovers skills, presents a selection TUI,
+/// and adds selected skills to the manifest.
+fn cmd_add_discover(
+    args: AddArgs,
+    repo_url: &str,
+    git_ref: &str,
+    search_path: &str,
+) -> Result<()> {
+    println!("Searching for skills in {}...\n", repo_url);
+
+    // Discover skills in the repository
+    let skills = discover_skills_in_repo(repo_url, git_ref, search_path)?;
+
+    if skills.is_empty() {
+        return Err(ApsError::NoSkillsFound);
+    }
+
+    println!("Found {} skill(s):\n", skills.len());
+    for skill in &skills {
+        if let Some(ref desc) = skill.description {
+            println!("  {} - {}", skill.name, desc);
+        } else {
+            println!("  {}", skill.name);
+        }
+    }
+    println!();
+
+    // Determine which skills to add
+    let selected_indices = if args.all {
+        // --all flag: add everything
+        (0..skills.len()).collect::<Vec<_>>()
+    } else {
+        // Interactive multi-select
+        let indices = prompt_skill_selection(&skills)?;
+        if indices.is_empty() {
+            return Err(ApsError::NoSkillsSelected);
+        }
+        indices
+    };
+
+    let selected_skills: Vec<_> = selected_indices
+        .iter()
+        .map(|&i| &skills[i])
+        .collect();
+
+    // Convert CLI asset kind to manifest asset kind
+    let asset_kind = match args.kind {
+        AddAssetKind::AgentSkill => AssetKind::AgentSkill,
+        AddAssetKind::CursorRules => AssetKind::CursorRules,
+        AddAssetKind::CursorSkillsRoot => AssetKind::CursorSkillsRoot,
+        AddAssetKind::AgentsMd => AssetKind::AgentsMd,
+    };
+
+    // Build entries for each selected skill
+    let new_entries: Vec<Entry> = selected_skills
+        .iter()
+        .map(|skill| Entry {
+            id: skill.name.clone(),
+            kind: asset_kind.clone(),
+            source: Some(Source::Git {
+                repo: repo_url.to_string(),
+                r#ref: git_ref.to_string(),
+                shallow: true,
+                path: Some(skill.repo_path.clone()),
+            }),
+            sources: Vec::new(),
+            dest: Some(format!(
+                "{}/{}/",
+                asset_kind
+                    .default_dest()
+                    .to_string_lossy()
+                    .trim_end_matches('/'),
+                skill.name
+            )),
+            include: Vec::new(),
+        })
+        .collect();
+
+    // Find or create manifest
+    let manifest_path = match args.manifest.clone() {
+        Some(p) => p,
+        None => match discover_manifest(None) {
+            Ok((_, path)) => path,
+            Err(ApsError::ManifestNotFound) => {
+                let path = std::env::current_dir()
+                    .map_err(|e| ApsError::io(e, "Failed to get current directory"))?
+                    .join(DEFAULT_MANIFEST_NAME);
+                println!("Creating new manifest at {:?}", path);
+
+                let manifest = Manifest {
+                    entries: new_entries.clone(),
+                };
+
+                let content =
+                    serde_yaml::to_string(&manifest).map_err(|e| ApsError::ManifestParseError {
+                        message: format!("Failed to serialize manifest: {}", e),
+                    })?;
+
+                fs::write(&path, &content).map_err(|e| {
+                    ApsError::io(e, format!("Failed to write manifest to {:?}", path))
+                })?;
+
+                let entry_ids: Vec<String> =
+                    new_entries.iter().map(|e| e.id.clone()).collect();
+                println!(
+                    "Added {} entries to manifest: {}\n",
+                    entry_ids.len(),
+                    entry_ids.join(", ")
+                );
+
+                if !args.no_sync {
+                    println!("Syncing...\n");
+                    cmd_sync(SyncArgs {
+                        manifest: Some(path),
+                        only: entry_ids,
+                        yes: true,
+                        ignore_manifest: false,
+                        dry_run: false,
+                        strict: false,
+                        upgrade: false,
+                    })?;
+                } else {
+                    println!("Run `aps sync` to install the skills.");
+                }
+
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        },
+    };
+
+    // Load existing manifest
+    let mut manifest = load_manifest(&manifest_path)?;
+
+    // Check for duplicate IDs and filter out already-existing entries
+    let mut added_ids = Vec::new();
+    let mut skipped_ids = Vec::new();
+
+    for entry in &new_entries {
+        if manifest.entries.iter().any(|e| e.id == entry.id) {
+            skipped_ids.push(entry.id.clone());
+        } else {
+            added_ids.push(entry.id.clone());
+            manifest.entries.push(entry.clone());
+        }
+    }
+
+    if !skipped_ids.is_empty() {
+        println!(
+            "Skipped {} already-existing entries: {}\n",
+            skipped_ids.len(),
+            skipped_ids.join(", ")
+        );
+    }
+
+    if added_ids.is_empty() {
+        println!("No new entries to add (all selected skills already exist in manifest).");
+        return Ok(());
+    }
+
+    // Serialize and write back
+    let content = serde_yaml::to_string(&manifest).map_err(|e| ApsError::ManifestParseError {
+        message: format!("Failed to serialize manifest: {}", e),
+    })?;
+
+    fs::write(&manifest_path, &content).map_err(|e| {
+        ApsError::io(
+            e,
+            format!("Failed to write manifest to {:?}", manifest_path),
+        )
+    })?;
+
+    info!("Added {} entries to {:?}", added_ids.len(), manifest_path);
+    println!(
+        "Added {} entries to {:?}: {}\n",
+        added_ids.len(),
+        manifest_path,
+        added_ids.join(", ")
+    );
+
+    // Sync the new entries unless --no-sync is set
+    if !args.no_sync {
+        println!("Syncing...\n");
+        cmd_sync(SyncArgs {
+            manifest: args.manifest,
+            only: added_ids,
+            yes: true,
+            ignore_manifest: false,
+            dry_run: false,
+            strict: false,
+            upgrade: false,
+        })?;
+    } else {
+        println!("Run `aps sync` to install the skills.");
     }
 
     Ok(())

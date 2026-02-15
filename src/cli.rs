@@ -52,8 +52,9 @@ pub struct InitArgs {
 
 #[derive(Parser, Debug)]
 pub struct AddArgs {
-    /// GitHub URL to a skill folder (e.g., https://github.com/owner/repo/blob/main/path/to/skill)
-    /// or direct URL to a SKILL.md file
+    /// GitHub URL to a skill folder, repository, or direct SKILL.md file.
+    /// For repo-level URLs (e.g., https://github.com/owner/repo), discovers
+    /// all skills and presents a selection prompt.
     #[arg(value_name = "URL")]
     pub url: String,
 
@@ -72,6 +73,10 @@ pub struct AddArgs {
     /// Skip syncing after adding (only update manifest)
     #[arg(long)]
     pub no_sync: bool,
+
+    /// Add all discovered skills without prompting (for repo-level URLs)
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]
