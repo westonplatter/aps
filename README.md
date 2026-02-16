@@ -135,6 +135,62 @@ cargo build --release
 - `--id <name>` - Custom entry ID (defaults to skill folder name)
 - `--kind <type>` - Asset kind: `agent-skill`, `cursor-rules`, `cursor-skills-root`, `agents-md` (default: `agent-skill`)
 - `--no-sync` - Only add to manifest, don't sync immediately
+- `--all` - Add all discovered skills without prompting (for repo-level URLs or directories)
+- `--yes` / `-y` - Skip confirmation prompts
+
+### Skill Discovery
+
+When you point `aps add` at a repository or directory that doesn't directly contain a `SKILL.md`, aps automatically discovers all skills within it. Skills are identified by recursively searching for directories containing a `SKILL.md` file.
+
+**From a GitHub repository:**
+
+```bash
+# Discover all skills in a repo (or a subdirectory within it)
+aps add https://github.com/anthropics/skills
+
+# Narrow discovery to a specific path within the repo
+aps add https://github.com/anthropics/skills/tree/main/skills
+```
+
+**From a local directory:**
+
+```bash
+# Discover skills in a local directory
+aps add ~/my-skills
+
+# Supports shell variable expansion
+aps add $HOME/work/shared-skills
+```
+
+After discovery, aps presents an interactive toggle picker showing **all** discovered skills. Already-installed skills appear pre-checked, so you can add new skills and remove existing ones in a single pass.
+
+```bash
+Found 5 skill(s) (2 installed, 3 new):
+
+? Toggle skills (space to toggle, enter to confirm) ›
+> ✔ refactor-module  Transform monolithic Terraform configurations into reusable modules
+  ✔ plan-review      Review Terraform plan output for potential issues
+  ○ test-gen         Generate unit tests for Terraform modules
+  ○ lint-check       Lint Terraform files for best practices
+  ○ cost-estimator   Estimate cloud costs from Terraform plans
+```
+
+After confirming, aps shows a summary of changes:
+
+```bash
+  ✓ Will add: test-gen, cost-estimator
+  ✗ Will remove: plan-review
+  · Unchanged: refactor-module
+
+Proceed? [Y/n]
+```
+
+To skip prompts and add everything, use `--all`. To skip the confirmation, use `--yes` / `-y`:
+
+```bash
+aps add --all https://github.com/anthropics/skills
+aps add --yes https://github.com/anthropics/skills
+```
 
 ### Sync Options
 

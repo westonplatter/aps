@@ -64,7 +64,12 @@ fn format_dest_path(dest_path: &str, manifest_dir: &Path) -> String {
 }
 
 /// Print all sync results in the new styled format
-pub fn print_sync_results(items: &[SyncDisplayItem], manifest_path: &Path, dry_run: bool) {
+pub fn print_sync_results(
+    items: &[SyncDisplayItem],
+    manifest_path: &Path,
+    dry_run: bool,
+    overlap_warnings: &[String],
+) {
     let manifest_dir = manifest_path.parent().unwrap_or(Path::new("."));
 
     // Header
@@ -88,6 +93,14 @@ pub fn print_sync_results(items: &[SyncDisplayItem], manifest_path: &Path, dry_r
         );
     }
     println!();
+
+    // Overlap warnings (between header and entry list)
+    if !overlap_warnings.is_empty() {
+        for warning in overlap_warnings {
+            println!("  {} {}", style("!").yellow(), style(warning).yellow());
+        }
+        println!();
+    }
 
     // Styles
     let green = Style::new().green();

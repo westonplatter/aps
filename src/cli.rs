@@ -23,7 +23,7 @@ pub enum Commands {
     /// Initialize a new manifest file
     Init(InitArgs),
 
-    /// Add a skill from a GitHub URL to the manifest
+    /// Add a skill from a GitHub URL or local path to the manifest
     Add(AddArgs),
 
     /// Sync and install assets from manifest sources
@@ -52,9 +52,11 @@ pub struct InitArgs {
 
 #[derive(Parser, Debug)]
 pub struct AddArgs {
-    /// GitHub URL to a skill folder (e.g., https://github.com/owner/repo/blob/main/path/to/skill)
-    /// or direct URL to a SKILL.md file
-    #[arg(value_name = "URL")]
+    /// GitHub URL or local filesystem path to a skill folder or repository.
+    /// Supports: GitHub URLs (https://github.com/owner/repo/...) and local
+    /// paths ($HOME/skills, ~/skills, ./skills). For repo-level URLs or
+    /// directories without SKILL.md, discovers skills and prompts for selection.
+    #[arg(value_name = "URL_OR_PATH")]
     pub url: String,
 
     /// Custom entry ID (defaults to skill folder name)
@@ -72,6 +74,14 @@ pub struct AddArgs {
     /// Skip syncing after adding (only update manifest)
     #[arg(long)]
     pub no_sync: bool,
+
+    /// Add all discovered skills without prompting (for repo-level URLs or directories)
+    #[arg(long, conflicts_with = "id")]
+    pub all: bool,
+
+    /// Skip confirmation prompts
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]

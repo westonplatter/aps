@@ -7,7 +7,7 @@ mod filesystem;
 mod git;
 
 pub use filesystem::FilesystemSource;
-pub use git::{clone_at_commit, get_remote_commit_sha, GitSource};
+pub use git::{clone_and_resolve, clone_at_commit, get_remote_commit_sha, GitSource};
 
 use crate::error::Result;
 use crate::lockfile::LockedEntry;

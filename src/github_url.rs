@@ -20,6 +20,8 @@ pub struct ParsedGitHubUrl {
     pub path: String,
     /// Whether the path points to a SKILL.md file
     pub is_skill_file: bool,
+    /// Whether this is a repo-level URL (no specific skill path)
+    pub is_repo_level: bool,
 }
 
 impl ParsedGitHubUrl {
@@ -84,21 +86,40 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
         });
     }
 
-    // Parse the path: /{owner}/{repo}/{blob|tree}/{ref}/{path...}
-    let path_segments: Vec<&str> = parsed.path().trim_start_matches('/').split('/').collect();
+    // Parse the path: /{owner}/{repo}[/{blob|tree}/{ref}[/{path...}]]
+    let path_segments: Vec<&str> = parsed
+        .path()
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
 
-    // Need at least: owner, repo, blob/tree, ref
-    if path_segments.len() < 4 {
+    // Need at least: owner, repo
+    if path_segments.len() < 2 {
         return Err(ApsError::InvalidGitHubUrl {
             url: url.to_string(),
-            reason: "URL must include owner, repo, blob/tree, ref, and path".to_string(),
+            reason: "URL must include at least owner and repo".to_string(),
         });
     }
 
     let owner = path_segments[0];
     let repo = path_segments[1].trim_end_matches(".git");
+
+    // Construct the repo URL
+    let repo_url = format!("https://github.com/{}/{}.git", owner, repo);
+
+    // Handle repo-level URLs: https://github.com/owner/repo
+    if path_segments.len() == 2 {
+        return Ok(ParsedGitHubUrl {
+            repo_url,
+            git_ref: "auto".to_string(),
+            path: String::new(),
+            is_skill_file: false,
+            is_repo_level: true,
+        });
+    }
+
     let url_type = path_segments[2]; // "blob" or "tree"
-    let git_ref = path_segments[3];
 
     // Validate URL type
     if url_type != "blob" && url_type != "tree" {
@@ -112,13 +133,33 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
         });
     }
 
+    // Need at least: owner, repo, blob/tree, ref
+    if path_segments.len() < 4 {
+        return Err(ApsError::InvalidGitHubUrl {
+            url: url.to_string(),
+            reason: "URL must include a ref after blob/tree".to_string(),
+        });
+    }
+
+    let git_ref = path_segments[3];
+
     // Get the remaining path (everything after the ref)
     let path = if path_segments.len() > 4 {
         path_segments[4..].join("/")
-    } else {
+    } else if url_type == "blob" {
+        // blob/<ref> without a file path is not a valid GitHub URL
         return Err(ApsError::InvalidGitHubUrl {
             url: url.to_string(),
-            reason: "URL must include a path to the skill folder".to_string(),
+            reason: "blob URL must include a file path after the ref".to_string(),
+        });
+    } else {
+        // tree/<ref> with no further path = repo-level with explicit ref
+        return Ok(ParsedGitHubUrl {
+            repo_url,
+            git_ref: git_ref.to_string(),
+            path: String::new(),
+            is_skill_file: false,
+            is_repo_level: true,
         });
     };
 
@@ -128,14 +169,12 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
         || path == "SKILL.md"
         || path == "skill.md";
 
-    // Construct the repo URL
-    let repo_url = format!("https://github.com/{}/{}.git", owner, repo);
-
     Ok(ParsedGitHubUrl {
         repo_url,
         git_ref: git_ref.to_string(),
         path,
         is_skill_file,
+        is_repo_level: false,
     })
 }
 
@@ -158,6 +197,7 @@ mod tests {
             "terraform/module-generation/skills/refactor-module"
         );
         assert!(!parsed.is_skill_file);
+        assert!(!parsed.is_repo_level);
         assert_eq!(parsed.skill_name(), Some("refactor-module"));
     }
 
@@ -176,6 +216,7 @@ mod tests {
             "terraform/module-generation/skills/refactor-module/SKILL.md"
         );
         assert!(parsed.is_skill_file);
+        assert!(!parsed.is_repo_level);
         assert_eq!(
             parsed.skill_path(),
             "terraform/module-generation/skills/refactor-module"
@@ -192,6 +233,7 @@ mod tests {
         assert_eq!(parsed.git_ref, "main");
         assert_eq!(parsed.path, "skills/skill-creation");
         assert!(!parsed.is_skill_file);
+        assert!(!parsed.is_repo_level);
         assert_eq!(parsed.skill_name(), Some("skill-creation"));
     }
 
@@ -220,7 +262,18 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_path() {
+    fn test_repo_level_url_with_tree_ref_no_path() {
+        let url = "https://github.com/owner/repo/tree/main";
+        let parsed = parse_github_url(url).unwrap();
+
+        assert_eq!(parsed.repo_url, "https://github.com/owner/repo.git");
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "");
+        assert!(parsed.is_repo_level);
+    }
+
+    #[test]
+    fn test_blob_url_without_path_is_invalid() {
         let url = "https://github.com/owner/repo/blob/main";
         let result = parse_github_url(url);
         assert!(result.is_err());
@@ -261,5 +314,44 @@ mod tests {
         assert!(parsed.is_skill_file);
         assert_eq!(parsed.skill_path(), "");
         assert_eq!(parsed.skill_name(), None);
+    }
+
+    #[test]
+    fn test_bare_repo_url() {
+        let url = "https://github.com/hashicorp/agent-skills";
+        let parsed = parse_github_url(url).unwrap();
+
+        assert_eq!(
+            parsed.repo_url,
+            "https://github.com/hashicorp/agent-skills.git"
+        );
+        assert_eq!(parsed.git_ref, "auto");
+        assert_eq!(parsed.path, "");
+        assert!(parsed.is_repo_level);
+        assert!(!parsed.is_skill_file);
+    }
+
+    #[test]
+    fn test_repo_url_with_trailing_slash() {
+        let url = "https://github.com/hashicorp/agent-skills/";
+        let parsed = parse_github_url(url).unwrap();
+
+        assert_eq!(
+            parsed.repo_url,
+            "https://github.com/hashicorp/agent-skills.git"
+        );
+        assert!(parsed.is_repo_level);
+    }
+
+    #[test]
+    fn test_tree_url_with_subpath_not_repo_level() {
+        let url = "https://github.com/owner/repo/tree/main/skills";
+        let parsed = parse_github_url(url).unwrap();
+
+        assert_eq!(parsed.repo_url, "https://github.com/owner/repo.git");
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "skills");
+        assert!(!parsed.is_repo_level);
+        assert!(!parsed.is_skill_file);
     }
 }

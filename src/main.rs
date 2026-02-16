@@ -4,6 +4,7 @@ mod checksum;
 mod cli;
 mod commands;
 mod compose;
+mod discover;
 mod error;
 mod github_url;
 mod hooks;

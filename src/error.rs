@@ -164,6 +164,21 @@ pub enum ApsError {
     #[error("Invalid GitHub URL: {url}")]
     #[diagnostic(code(aps::add::invalid_github_url), help("{reason}"))]
     InvalidGitHubUrl { url: String, reason: String },
+
+    #[error("No skills found in {location}")]
+    #[diagnostic(
+        code(aps::discover::no_skills),
+        help("Skills are detected by the presence of a SKILL.md file in a directory")
+    )]
+    NoSkillsFound { location: String },
+
+    #[error("No skills selected")]
+    #[diagnostic(code(aps::discover::none_selected))]
+    NoSkillsSelected,
+
+    #[error("{message}")]
+    #[diagnostic(code(aps::invalid_input))]
+    InvalidInput { message: String },
 }
 
 impl ApsError {
