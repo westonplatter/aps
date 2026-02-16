@@ -17,6 +17,7 @@ use crate::manifest::{
 };
 use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
 use crate::sync_output::{print_sync_results, print_sync_summary, SyncDisplayItem, SyncStatus};
+use console::{style, Style};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -339,15 +340,25 @@ fn write_entries_to_manifest(
     }
 
     if !skipped_ids.is_empty() {
+        let dim = Style::new().dim();
         println!(
-            "Skipped {} already-existing entries: {}\n",
-            skipped_ids.len(),
-            skipped_ids.join(", ")
+            "  {} {}\n",
+            dim.apply_to("·"),
+            dim.apply_to(format!(
+                "Skipped {} already-existing: {}",
+                skipped_ids.len(),
+                skipped_ids.join(", ")
+            ))
         );
     }
 
     if added_ids.is_empty() {
-        println!("No new entries to add (all selected skills already exist in manifest).");
+        println!(
+            "{}",
+            Style::new()
+                .dim()
+                .apply_to("No new entries to add (all selected skills already exist in manifest).")
+        );
         return Ok((manifest_path, added_ids));
     }
 
@@ -436,7 +447,11 @@ fn cmd_add_single_git(
 
     if !added_ids.is_empty() {
         info!("Added entry '{}' to {:?}", entry_id, manifest_path);
-        println!("Added entry '{}' to {:?}\n", entry_id, manifest_path);
+        println!(
+            "  {} {}\n",
+            style("✓").green(),
+            style(format!("Added entry '{}'", entry_id)).green()
+        );
     }
 
     maybe_sync(&added_ids, args.no_sync, args.manifest)
@@ -489,7 +504,11 @@ fn cmd_add_single_filesystem(args: AddArgs, original_path: &str, skill_name: &st
 
     if !added_ids.is_empty() {
         info!("Added entry '{}' to {:?}", entry_id, manifest_path);
-        println!("Added entry '{}' to {:?}\n", entry_id, manifest_path);
+        println!(
+            "  {} {}\n",
+            style("✓").green(),
+            style(format!("Added entry '{}'", entry_id)).green()
+        );
     }
 
     maybe_sync(&added_ids, args.no_sync, args.manifest)
@@ -515,6 +534,7 @@ use crate::discover::DiscoveredSkill;
 
 /// Shared logic for discovery-based add (both git and filesystem).
 /// Takes discovered skills and a closure to build the Source for each skill.
+/// Shows ALL skills with installed ones pre-checked; unchecking removes them.
 fn cmd_add_discovered(
     args: AddArgs,
     skills: Vec<DiscoveredSkill>,
@@ -527,77 +547,167 @@ fn cmd_add_discovered(
         });
     }
 
-    // Filter out skills already in the manifest
     let existing_ids = get_existing_entry_ids(args.manifest.as_deref());
-    let (available, already_installed): (Vec<_>, Vec<_>) = skills
-        .into_iter()
-        .partition(|s| !existing_ids.contains(&s.name));
 
-    if !already_installed.is_empty() {
+    // Build defaults: true for already-installed, false for new
+    let defaults: Vec<bool> = skills
+        .iter()
+        .map(|s| existing_ids.contains(&s.name))
+        .collect();
+
+    println!(
+        "Found {} skill(s) ({} installed):\n",
+        skills.len(),
+        defaults.iter().filter(|&&d| d).count()
+    );
+
+    let selected_indices = select_skills(&skills, &defaults, args.all)?;
+    let selected_names: std::collections::HashSet<&str> = selected_indices
+        .iter()
+        .map(|&i| skills[i].name.as_str())
+        .collect();
+
+    // Compute delta
+    let to_add: Vec<&DiscoveredSkill> = selected_indices
+        .iter()
+        .map(|&i| &skills[i])
+        .filter(|s| !existing_ids.contains(&s.name))
+        .collect();
+    let to_remove: Vec<&str> = existing_ids
+        .iter()
+        .filter(|id| {
+            // Only remove if the skill was discovered (so it appeared in the picker)
+            // and was unchecked
+            skills.iter().any(|s| &s.name == *id) && !selected_names.contains(id.as_str())
+        })
+        .map(|s| s.as_str())
+        .collect();
+    let unchanged: Vec<&str> = selected_indices
+        .iter()
+        .map(|&i| skills[i].name.as_str())
+        .filter(|name| existing_ids.contains(*name))
+        .collect();
+
+    // Show confirmation summary
+    let dim = Style::new().dim();
+
+    if !to_add.is_empty() {
+        let names: Vec<&str> = to_add.iter().map(|s| s.name.as_str()).collect();
         println!(
-            "Already installed ({}): {}\n",
-            already_installed.len(),
-            already_installed
-                .iter()
-                .map(|s| s.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+            "  {} {}",
+            style("✓").green(),
+            style(format!("Will add: {}", names.join(", "))).green()
+        );
+    }
+    if !to_remove.is_empty() {
+        println!(
+            "  {} {}",
+            style("✗").red(),
+            style(format!("Will remove: {}", to_remove.join(", "))).red()
+        );
+    }
+    if !unchanged.is_empty() {
+        println!(
+            "  {} {}",
+            dim.apply_to("·"),
+            dim.apply_to(format!("Unchanged: {}", unchanged.join(", ")))
         );
     }
 
-    if available.is_empty() {
-        println!("All discovered skills are already installed.");
+    if to_add.is_empty() && to_remove.is_empty() {
+        println!("\n{}", dim.apply_to("No changes to make."));
         return Ok(());
     }
 
-    println!("Found {} available skill(s):\n", available.len());
-
-    let selected = select_skills(&available, args.all)?;
-
-    // Detect duplicate names among selected skills and derive unique IDs from repo_path
-    let mut name_counts = std::collections::HashMap::new();
-    for skill in &selected {
-        *name_counts.entry(skill.name.as_str()).or_insert(0usize) += 1;
-    }
-    let make_id = |skill: &DiscoveredSkill| -> String {
-        if name_counts.get(skill.name.as_str()).copied().unwrap_or(0) > 1 {
-            // Use full relative path with '/' replaced by '-' for uniqueness
-            skill.repo_path.replace('/', "-")
-        } else {
-            skill.name.clone()
+    // Prompt for confirmation unless --yes or --all
+    if !args.yes && !args.all {
+        println!();
+        let confirm = dialoguer::Confirm::new()
+            .with_prompt("Proceed?")
+            .default(true)
+            .interact()
+            .map_err(|e| {
+                ApsError::io(
+                    std::io::Error::other(e.to_string()),
+                    "Failed to display confirmation prompt",
+                )
+            })?;
+        if !confirm {
+            println!("Cancelled.");
+            return Ok(());
         }
-    };
+    }
 
-    let asset_kind = resolve_asset_kind(&args.kind);
+    println!();
 
-    let entries: Vec<Entry> = selected
-        .iter()
-        .map(|skill| {
-            let id = make_id(skill);
-            Entry {
-                id: id.clone(),
-                kind: asset_kind.clone(),
-                source: Some(source_builder(skill)),
-                sources: Vec::new(),
-                dest: Some(skill_dest(&asset_kind, &id)),
-                include: Vec::new(),
-            }
-        })
-        .collect();
-
-    let (manifest_path, added_ids) = write_entries_to_manifest(entries, args.manifest.clone())?;
-
-    if !added_ids.is_empty() {
-        info!("Added {} entries to {:?}", added_ids.len(), manifest_path);
+    // Execute removes
+    if !to_remove.is_empty() {
+        let remove_ids: Vec<String> = to_remove.iter().map(|s| s.to_string()).collect();
+        remove_entries_from_manifest(&remove_ids, args.manifest.as_deref())?;
         println!(
-            "Added {} entries to {:?}: {}\n",
-            added_ids.len(),
-            manifest_path,
-            added_ids.join(", ")
+            "  {} {}\n",
+            style("✗").red(),
+            style(format!(
+                "Removed {} entries: {}",
+                remove_ids.len(),
+                remove_ids.join(", ")
+            ))
+            .red()
         );
     }
 
-    maybe_sync(&added_ids, args.no_sync, args.manifest)
+    // Execute adds
+    if !to_add.is_empty() {
+        // Detect duplicate names among selected skills
+        let mut name_counts = std::collections::HashMap::new();
+        for skill in &to_add {
+            *name_counts.entry(skill.name.as_str()).or_insert(0usize) += 1;
+        }
+        let make_id = |skill: &DiscoveredSkill| -> String {
+            if name_counts.get(skill.name.as_str()).copied().unwrap_or(0) > 1 {
+                skill.repo_path.replace('/', "-")
+            } else {
+                skill.name.clone()
+            }
+        };
+
+        let asset_kind = resolve_asset_kind(&args.kind);
+
+        let entries: Vec<Entry> = to_add
+            .iter()
+            .map(|skill| {
+                let id = make_id(skill);
+                Entry {
+                    id: id.clone(),
+                    kind: asset_kind.clone(),
+                    source: Some(source_builder(skill)),
+                    sources: Vec::new(),
+                    dest: Some(skill_dest(&asset_kind, &id)),
+                    include: Vec::new(),
+                }
+            })
+            .collect();
+
+        let (manifest_path, added_ids) = write_entries_to_manifest(entries, args.manifest.clone())?;
+
+        if !added_ids.is_empty() {
+            info!("Added {} entries to {:?}", added_ids.len(), manifest_path);
+            println!(
+                "  {} {}\n",
+                style("✓").green(),
+                style(format!(
+                    "Added {} entries: {}",
+                    added_ids.len(),
+                    added_ids.join(", ")
+                ))
+                .green()
+            );
+        }
+
+        maybe_sync(&added_ids, args.no_sync, args.manifest)?;
+    }
+
+    Ok(())
 }
 
 /// Get the set of entry IDs already present in the manifest.
@@ -610,6 +720,69 @@ fn get_existing_entry_ids(manifest_override: Option<&Path>) -> std::collections:
         Some(manifest) => manifest.entries.iter().map(|e| e.id.clone()).collect(),
         None => std::collections::HashSet::new(),
     }
+}
+
+/// Remove entries from the manifest, lockfile, and installed files.
+fn remove_entries_from_manifest(ids: &[String], manifest_override: Option<&Path>) -> Result<()> {
+    let manifest_path = match manifest_override {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let (_, path) = discover_manifest(None)?;
+            path
+        }
+    };
+
+    let mut manifest = load_manifest(&manifest_path)?;
+    let base_dir = manifest_dir(&manifest_path);
+
+    // Collect dest paths before removing entries
+    let dest_paths: Vec<(String, Option<String>)> = manifest
+        .entries
+        .iter()
+        .filter(|e| ids.contains(&e.id))
+        .map(|e| (e.id.clone(), e.dest.clone()))
+        .collect();
+
+    // Remove entries from manifest
+    manifest.entries.retain(|e| !ids.contains(&e.id));
+
+    let content = serde_yaml::to_string(&manifest).map_err(|e| ApsError::ManifestParseError {
+        message: format!("Failed to serialize manifest: {}", e),
+    })?;
+    fs::write(&manifest_path, &content).map_err(|e| {
+        ApsError::io(
+            e,
+            format!("Failed to write manifest to {:?}", manifest_path),
+        )
+    })?;
+
+    // Remove from lockfile
+    let lockfile_path = Lockfile::path_for_manifest(&manifest_path);
+    if let Ok(mut lockfile) = Lockfile::load(&lockfile_path) {
+        let keep_ids: Vec<&str> = manifest.entries.iter().map(|e| e.id.as_str()).collect();
+        lockfile.retain_entries(&keep_ids);
+        lockfile.save(&lockfile_path)?;
+    }
+
+    // Delete installed files/directories
+    for (_id, dest) in &dest_paths {
+        if let Some(dest) = dest {
+            let dest_path = base_dir.join(dest);
+            if dest_path.exists() {
+                if dest_path.is_dir() {
+                    fs::remove_dir_all(&dest_path).map_err(|e| {
+                        ApsError::io(e, format!("Failed to remove directory {:?}", dest_path))
+                    })?;
+                } else {
+                    fs::remove_file(&dest_path).map_err(|e| {
+                        ApsError::io(e, format!("Failed to remove file {:?}", dest_path))
+                    })?;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Check if an entry ID already exists in the manifest. Returns error if duplicate.
@@ -628,19 +801,17 @@ fn check_duplicate_id(entry_id: &str, manifest_override: Option<&Path>) -> Resul
     Ok(())
 }
 
-/// Select skills (--all or interactive prompt).
-fn select_skills(skills: &[DiscoveredSkill], all: bool) -> Result<Vec<&DiscoveredSkill>> {
-    let indices = if all {
-        (0..skills.len()).collect::<Vec<_>>()
+/// Select skills (--all or interactive prompt). Returns selected indices.
+fn select_skills(skills: &[DiscoveredSkill], defaults: &[bool], all: bool) -> Result<Vec<usize>> {
+    if all {
+        Ok((0..skills.len()).collect())
     } else {
-        let indices = prompt_skill_selection(skills)?;
+        let indices = prompt_skill_selection(skills, defaults)?;
         if indices.is_empty() {
             return Err(ApsError::NoSkillsSelected);
         }
-        indices
-    };
-
-    Ok(indices.iter().map(|&i| &skills[i]).collect())
+        Ok(indices)
+    }
 }
 
 /// Execute the `aps sync` command

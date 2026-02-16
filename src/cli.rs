@@ -78,6 +78,10 @@ pub struct AddArgs {
     /// Add all discovered skills without prompting (for repo-level URLs or directories)
     #[arg(long, conflicts_with = "id")]
     pub all: bool,
+
+    /// Skip confirmation prompts
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]

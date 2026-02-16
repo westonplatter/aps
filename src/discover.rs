@@ -280,7 +280,7 @@ fn truncate(s: String, max_len: usize) -> String {
 
 /// Present a multi-select TUI for choosing which skills to add.
 /// Returns the indices of selected skills.
-pub fn prompt_skill_selection(skills: &[DiscoveredSkill]) -> Result<Vec<usize>> {
+pub fn prompt_skill_selection(skills: &[DiscoveredSkill], defaults: &[bool]) -> Result<Vec<usize>> {
     use console::Term;
     use dialoguer::MultiSelect;
 
@@ -296,8 +296,9 @@ pub fn prompt_skill_selection(skills: &[DiscoveredSkill]) -> Result<Vec<usize>> 
         .collect();
 
     let selections = MultiSelect::new()
-        .with_prompt("Select skills to add (space to toggle, enter to confirm)")
+        .with_prompt("Toggle skills (space to toggle, enter to confirm)")
         .items(&items)
+        .defaults(defaults)
         .interact_on(&Term::stderr())
         .map_err(|e| {
             ApsError::io(
