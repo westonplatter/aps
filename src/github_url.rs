@@ -146,8 +146,14 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
     // Get the remaining path (everything after the ref)
     let path = if path_segments.len() > 4 {
         path_segments[4..].join("/")
+    } else if url_type == "blob" {
+        // blob/<ref> without a file path is not a valid GitHub URL
+        return Err(ApsError::InvalidGitHubUrl {
+            url: url.to_string(),
+            reason: "blob URL must include a file path after the ref".to_string(),
+        });
     } else {
-        // tree/main with no further path = repo-level with explicit ref
+        // tree/<ref> with no further path = repo-level with explicit ref
         return Ok(ParsedGitHubUrl {
             repo_url,
             git_ref: git_ref.to_string(),
@@ -264,6 +270,13 @@ mod tests {
         assert_eq!(parsed.git_ref, "main");
         assert_eq!(parsed.path, "");
         assert!(parsed.is_repo_level);
+    }
+
+    #[test]
+    fn test_blob_url_without_path_is_invalid() {
+        let url = "https://github.com/owner/repo/blob/main";
+        let result = parse_github_url(url);
+        assert!(result.is_err());
     }
 
     #[test]

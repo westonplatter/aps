@@ -175,6 +175,10 @@ pub enum ApsError {
     #[error("No skills selected")]
     #[diagnostic(code(aps::discover::none_selected))]
     NoSkillsSelected,
+
+    #[error("{message}")]
+    #[diagnostic(code(aps::invalid_input))]
+    InvalidInput { message: String },
 }
 
 impl ApsError {

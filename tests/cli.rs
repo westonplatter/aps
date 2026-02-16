@@ -1349,7 +1349,7 @@ fn add_repo_level_url_non_github_fails() {
 fn add_repo_url_with_all_discovers_and_adds_skills() {
     let temp = assert_fs::TempDir::new().unwrap();
 
-    // Create a local skills repo
+    // Create a local skills repo (already a git repo via create_skills_repo)
     let source_repo = temp.child("skills-repo");
     source_repo.create_dir_all().unwrap();
     create_skills_repo(source_repo.path());
@@ -1358,24 +1358,14 @@ fn add_repo_url_with_all_discovers_and_adds_skills() {
     let project = temp.child("project");
     project.create_dir_all().unwrap();
 
-    // We need a GitHub URL for parse_github_url, but we can test the discover
-    // module's unit tests for local functionality. For CLI integration, we test
-    // that the --all flag is accepted and the discovery path is exercised.
-    // The real discovery flow is tested via unit tests in discover.rs.
+    // Use the local git repo path so the discovery flow runs without network access
+    let repo_path = source_repo.path().to_str().unwrap();
 
-    // Test that a real github URL with --all triggers the discovery flow
-    // Using a repo we know has SKILL.md files
     aps()
-        .args([
-            "add",
-            "https://github.com/anthropics/courses/tree/master/prompt_evaluations",
-            "--all",
-            "--no-sync",
-        ])
+        .args(["add", repo_path, "--all", "--no-sync"])
         .current_dir(&project)
         .assert()
         .success()
-        // This may find skills or not, but should at least trigger the discovery path
         .stdout(predicate::str::contains("Searching for skills"));
 }
 
