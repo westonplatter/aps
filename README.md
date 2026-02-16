@@ -136,6 +136,7 @@ cargo build --release
 - `--kind <type>` - Asset kind: `agent-skill`, `cursor-rules`, `cursor-skills-root`, `agents-md` (default: `agent-skill`)
 - `--no-sync` - Only add to manifest, don't sync immediately
 - `--all` - Add all discovered skills without prompting (for repo-level URLs or directories)
+- `--yes` / `-y` - Skip confirmation prompts
 
 ### Skill Discovery
 
@@ -161,22 +162,34 @@ aps add ~/my-skills
 aps add $HOME/work/shared-skills
 ```
 
-After discovery, aps presents an interactive multi-select prompt so you can choose which skills to add. Each skill is shown with a short description extracted from its `SKILL.md` (via YAML frontmatter `description` field or the first paragraph).
+After discovery, aps presents an interactive toggle picker showing **all** discovered skills. Already-installed skills appear pre-checked, so you can add new skills and remove existing ones in a single pass.
 
 ```
-Found 3 skill(s):
+Found 5 skill(s) (2 installed, 3 new):
 
-  refactor-module - Transform monolithic Terraform configurations into reusable modules
-  plan-review     - Review Terraform plan output for potential issues
-  test-gen        - Generate unit tests for Terraform modules
-
-Select skills to add (space to toggle, enter to confirm)
+? Toggle skills (space to toggle, enter to confirm) ›
+> ✔ refactor-module  Transform monolithic Terraform configurations into reusable modules
+  ✔ plan-review      Review Terraform plan output for potential issues
+  ○ test-gen         Generate unit tests for Terraform modules
+  ○ lint-check       Lint Terraform files for best practices
+  ○ cost-estimator   Estimate cloud costs from Terraform plans
 ```
 
-To skip the prompt and add everything, use the `--all` flag:
+After confirming, aps shows a summary of changes:
+
+```
+  ✓ Will add: test-gen, cost-estimator
+  ✗ Will remove: plan-review
+  · Unchanged: refactor-module
+
+Proceed? [Y/n]
+```
+
+To skip prompts and add everything, use `--all`. To skip the confirmation, use `--yes` / `-y`:
 
 ```bash
 aps add --all https://github.com/anthropics/skills
+aps add --yes https://github.com/anthropics/skills
 ```
 
 ### Sync Options
