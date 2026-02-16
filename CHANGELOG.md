@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.11](https://github.com/westonplatter/aps/compare/aps-v0.1.10...aps-v0.1.11) (2026-02-16)
+
+
+### Features
+
+* add copilot review instructions for Rust codebase ([#71](https://github.com/westonplatter/aps/issues/71)) ([19c6b53](https://github.com/westonplatter/aps/commit/19c6b53fd4321624b0f9be96c0fc94fee5dcadf9))
+* Add skill discovery for repo-level GitHub URLs ([#70](https://github.com/westonplatter/aps/issues/70)) closes [#62](https://github.com/westonplatter/aps/issues/62) ([fdb6fda](https://github.com/westonplatter/aps/commit/fdb6fdae8f97fb2b5474d150fe7fcf9a104cacb3))
+* update repo url to https://github.com/westonplatter/aps ([#74](https://github.com/westonplatter/aps/issues/74)) ([71154d3](https://github.com/westonplatter/aps/commit/71154d315080ac0a5daa5f0e3b5f757ddbbf7b5d))
+
 ## [0.1.10](https://github.com/westonplatter/agentic-prompt-sync/compare/aps-v0.1.9...aps-v0.1.10) (2026-02-13)
 
 
