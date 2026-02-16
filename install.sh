@@ -1,10 +1,10 @@
 #!/bin/sh
 # Installer script for aps (Agentic Prompt Sync)
-# Usage: curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/westonplatter/aps/main/install.sh | sh
 
 set -e
 
-REPO="westonplatter/agentic-prompt-sync"
+REPO="westonplatter/aps"
 BINARY_NAME="aps"
 INSTALL_DIR="${APS_INSTALL_DIR:-$HOME/.local/bin}"
 
