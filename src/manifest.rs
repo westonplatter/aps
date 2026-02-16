@@ -332,6 +332,58 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
+/// Normalize a destination path by stripping `./` prefix and trailing slashes
+/// so that `./.claude/skills/foo/` and `.claude/skills/foo` compare equal.
+fn normalize_dest(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    let s = s.strip_prefix("./").unwrap_or(&s);
+    let s = s.trim_end_matches('/');
+    PathBuf::from(s)
+}
+
+/// Detect entries that write to overlapping destination paths.
+/// Returns a list of human-readable warning strings.
+pub fn detect_overlapping_destinations(manifest: &Manifest) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    // Build a map of effective destination paths to entry IDs.
+    // An entry with `include` filters produces sub-paths like `dest/included_item`.
+    // An entry without `include` writes to `dest` directly.
+    let mut dest_to_entries: std::collections::HashMap<PathBuf, Vec<&str>> =
+        std::collections::HashMap::new();
+
+    for entry in &manifest.entries {
+        let base_dest = normalize_dest(&entry.destination());
+
+        if entry.include.is_empty() {
+            dest_to_entries
+                .entry(base_dest)
+                .or_default()
+                .push(&entry.id);
+        } else {
+            for inc in &entry.include {
+                let effective = normalize_dest(&base_dest.join(inc));
+                dest_to_entries
+                    .entry(effective)
+                    .or_default()
+                    .push(&entry.id);
+            }
+        }
+    }
+
+    for (dest, ids) in &dest_to_entries {
+        if ids.len() > 1 {
+            warnings.push(format!(
+                "Entries [{}] write to the same destination '{}'; the last entry wins",
+                ids.join(", "),
+                dest.display()
+            ));
+        }
+    }
+
+    warnings
+}
+
 /// Get the manifest directory (for resolving relative paths)
 pub fn manifest_dir(manifest_path: &Path) -> PathBuf {
     manifest_path
@@ -488,5 +540,81 @@ mod tests {
         assert!(matches!(entry.sources[0], Source::Filesystem { .. }));
         assert!(matches!(entry.sources[1], Source::Git { .. }));
         assert!(matches!(entry.sources[2], Source::Filesystem { .. }));
+    }
+
+    #[test]
+    fn test_detect_overlapping_destinations_with_include() {
+        // Simulates the user's case: one entry uses include filter that targets
+        // the same dest as a standalone entry
+        let manifest = Manifest {
+            entries: vec![
+                Entry {
+                    id: "anthropic-skills".to_string(),
+                    kind: AssetKind::AgentSkill,
+                    source: Some(Source::Git {
+                        repo: "https://github.com/anthropics/skills.git".to_string(),
+                        r#ref: "main".to_string(),
+                        shallow: true,
+                        path: Some("skills".to_string()),
+                    }),
+                    sources: Vec::new(),
+                    dest: Some(".claude/skills/".to_string()),
+                    include: vec!["skill-creator".to_string()],
+                },
+                Entry {
+                    id: "skill-creator".to_string(),
+                    kind: AssetKind::AgentSkill,
+                    source: Some(Source::Git {
+                        repo: "https://github.com/anthropics/skills.git".to_string(),
+                        r#ref: "auto".to_string(),
+                        shallow: true,
+                        path: Some("skills/skill-creator".to_string()),
+                    }),
+                    sources: Vec::new(),
+                    dest: Some(".claude/skills/skill-creator/".to_string()),
+                    include: Vec::new(),
+                },
+            ],
+        };
+
+        let warnings = detect_overlapping_destinations(&manifest);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("anthropic-skills"));
+        assert!(warnings[0].contains("skill-creator"));
+    }
+
+    #[test]
+    fn test_no_overlap_different_destinations() {
+        let manifest = Manifest {
+            entries: vec![
+                Entry {
+                    id: "skill-a".to_string(),
+                    kind: AssetKind::AgentSkill,
+                    source: Some(Source::Filesystem {
+                        root: ".".to_string(),
+                        symlink: true,
+                        path: None,
+                    }),
+                    sources: Vec::new(),
+                    dest: Some(".claude/skills/a/".to_string()),
+                    include: Vec::new(),
+                },
+                Entry {
+                    id: "skill-b".to_string(),
+                    kind: AssetKind::AgentSkill,
+                    source: Some(Source::Filesystem {
+                        root: ".".to_string(),
+                        symlink: true,
+                        path: None,
+                    }),
+                    sources: Vec::new(),
+                    dest: Some(".claude/skills/b/".to_string()),
+                    include: Vec::new(),
+                },
+            ],
+        };
+
+        let warnings = detect_overlapping_destinations(&manifest);
+        assert!(warnings.is_empty());
     }
 }

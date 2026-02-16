@@ -12,8 +12,8 @@ use crate::hooks::validate_cursor_hooks;
 use crate::install::{install_composite_entry, install_entry, InstallOptions, InstallResult};
 use crate::lockfile::{display_status, Lockfile};
 use crate::manifest::{
-    discover_manifest, load_manifest, manifest_dir, validate_manifest, AssetKind, Entry, Manifest,
-    Source, DEFAULT_MANIFEST_NAME,
+    detect_overlapping_destinations, discover_manifest, load_manifest, manifest_dir,
+    validate_manifest, AssetKind, Entry, Manifest, Source, DEFAULT_MANIFEST_NAME,
 };
 use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
 use crate::sync_output::{print_sync_results, print_sync_summary, SyncDisplayItem, SyncStatus};
@@ -598,6 +598,9 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     // Validate manifest
     validate_manifest(&manifest)?;
 
+    // Detect overlapping destinations (printed after header in sync output)
+    let overlap_warnings = detect_overlapping_destinations(&manifest);
+
     // Filter entries if --only is specified
     let entries_to_install: Vec<_> = if args.only.is_empty() {
         manifest.entries.iter().collect()
@@ -720,7 +723,12 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
         .collect();
 
     // Print styled results
-    print_sync_results(&display_items, &manifest_path, args.dry_run);
+    print_sync_results(
+        &display_items,
+        &manifest_path,
+        args.dry_run,
+        &overlap_warnings,
+    );
 
     // Calculate counts for summary
     let synced_count = display_items
@@ -767,6 +775,16 @@ pub fn cmd_validate(args: ValidateArgs) -> Result<()> {
     // Validate schema
     validate_manifest(&manifest)?;
     println!("  Schema validation passed");
+
+    // Check for overlapping destinations
+    let overlap_warnings = detect_overlapping_destinations(&manifest);
+    for warning in &overlap_warnings {
+        println!(
+            "  {} {}",
+            console::style("[WARN]").yellow(),
+            console::style(warning).yellow()
+        );
+    }
 
     // Check sources are reachable
     let base_dir = manifest_dir(&manifest_path);
