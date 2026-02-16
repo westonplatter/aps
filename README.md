@@ -1,13 +1,13 @@
 <div align="center"> <!-- markdownlint-disable MD033 MD041 -->
 
-# Agentic Prompt Sync (aps)
+# APS - Agentic Prompt Sync
 
 **Compose and sync your own collection of AGENTS.md, Skills, and other agentic prompts.**
 
-[![CI](https://github.com/westonplatter/agentic-prompt-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/westonplatter/agentic-prompt-sync/actions/workflows/ci.yml)
+[![CI](https://github.com/westonplatter/aps/actions/workflows/ci.yml/badge.svg)](https://github.com/westonplatter/aps/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/aps?style=flat-square)](https://crates.io/crates/aps)
 [![Downloads](https://img.shields.io/crates/d/aps?style=flat-square)](https://crates.io/crates/aps)
-[![GitHub stars](https://img.shields.io/github/stars/westonplatter/agentic-prompt-sync?style=flat-square)](https://github.com/westonplatter/agentic-prompt-sync/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/westonplatter/aps?style=flat-square)](https://github.com/westonplatter/aps/stargazers)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
 
 **Cross-platform support:** macOS • Linux • Windows
@@ -39,15 +39,15 @@ cargo install aps
 Or use curl,
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/westonplatter/aps/main/install.sh | sh
 
 # or override the install location
-APS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/westonplatter/agentic-prompt-sync/main/install.sh | sh
+APS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/westonplatter/aps/main/install.sh | sh
 ```
 
 ### Download Binary
 
-Pre-built binaries for all platforms are available on the [Releases page](https://github.com/westonplatter/agentic-prompt-sync/releases).
+Pre-built binaries for all platforms are available on the [Releases page](https://github.com/westonplatter/aps/releases).
 
 | Platform    | Download                    |
 | ----------- | --------------------------- |
@@ -60,7 +60,7 @@ Pre-built binaries for all platforms are available on the [Releases page](https:
 ### Build from Source
 
 ```bash
-git clone https://github.com/westonplatter/agentic-prompt-sync.git
+git clone https://github.com/westonplatter/aps.git
 cd agentic-prompt-sync
 cargo build --release
 # Binary at target/release/aps
