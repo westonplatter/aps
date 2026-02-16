@@ -1,6 +1,19 @@
 version: 1
-aps_version: 0.1.10
+aps_version: 0.1.11
 entries:
+  composite-agents-md:
+    source:
+      composite:
+        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.rust.md
+        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.pull-requests.md
+    dest: ./AGENTS.md
+    checksum: sha256:11eedede54fa5217e041f613adc9f692b985972e8487261e720fc553d707bdbf
+  anthropic-skills:
+    source: https://github.com/anthropics/skills.git
+    dest: ./.claude/skills/
+    resolved_ref: main
+    commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
+    checksum: sha256:3bd37a1929706db495f2609910316bb1a385a057556deb151f968e877aef39e9
   internal-comms:
     source: https://github.com/anthropics/skills.git
     dest: .claude/skills/internal-comms/
@@ -13,16 +26,3 @@ entries:
     resolved_ref: main
     commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
     checksum: sha256:bdd5389ea8390277b8310b83eaa561a703c2fa08bbcf770e6394d42571f7445f
-  anthropic-skills:
-    source: https://github.com/anthropics/skills.git
-    dest: ./.claude/skills/
-    resolved_ref: main
-    commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
-    checksum: sha256:3bd37a1929706db495f2609910316bb1a385a057556deb151f968e877aef39e9
-  composite-agents-md:
-    source:
-      composite:
-        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.rust.md
-        - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.pull-requests.md
-    dest: ./AGENTS.md
-    checksum: sha256:c5660664b049dcac3ca397f61805edafca1ea782c66582744fe2d98a08b35396
