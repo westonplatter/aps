@@ -120,12 +120,12 @@ fn parse_add_target(url_or_path: &str, all_flag: bool) -> Result<ParsedAddTarget
         let expanded = shellexpand::full(url_or_path)
             .map(|s| s.into_owned())
             .unwrap_or_else(|_| url_or_path.to_string());
-        return Err(ApsError::InvalidInput {
+        Err(ApsError::InvalidInput {
             message: format!(
                 "Path '{}' does not exist; provide an existing local path or a valid URL",
                 expanded
             ),
-        });
+        })
     } else {
         // Parse as GitHub URL
         let parsed = parse_github_url(url_or_path)?;

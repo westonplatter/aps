@@ -113,7 +113,7 @@ fn find_skills_in_directory(search_root: &Path, repo_root: &Path) -> Result<Vec<
     {
         let entry = entry.map_err(|e| {
             ApsError::io(
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                std::io::Error::other(e.to_string()),
                 format!("Failed to walk directory {:?}", search_root),
             )
         })?;
@@ -301,7 +301,7 @@ pub fn prompt_skill_selection(skills: &[DiscoveredSkill]) -> Result<Vec<usize>> 
         .interact_on(&Term::stderr())
         .map_err(|e| {
             ApsError::io(
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                std::io::Error::other(e.to_string()),
                 "Failed to display skill selection prompt",
             )
         })?;
