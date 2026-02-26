@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/westonplatter/aps/compare/aps-v0.1.11...aps-v0.1.12) (2026-02-26)
+
+
+### Features
+
+* add `aps list` command to display manifest entries and resources ([#76](https://github.com/westonplatter/aps/issues/76)) ([087b9a8](https://github.com/westonplatter/aps/commit/087b9a8bde648957664ac1bbe11cda4f38884060))
+
 ## [0.1.11](https://github.com/westonplatter/aps/compare/aps-v0.1.10...aps-v0.1.11) (2026-02-16)
 
 
