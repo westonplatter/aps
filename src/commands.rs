@@ -1,7 +1,7 @@
 use crate::catalog::Catalog;
 use crate::cli::{
-    AddArgs, AddAssetKind, CatalogGenerateArgs, InitArgs, ManifestFormat, StatusArgs, SyncArgs,
-    ValidateArgs,
+    AddArgs, AddAssetKind, CatalogGenerateArgs, InitArgs, ListArgs, ManifestFormat, StatusArgs,
+    SyncArgs, ValidateArgs,
 };
 use crate::discover::{
     discover_skills_in_local_dir, discover_skills_in_repo, prompt_skill_selection,
@@ -1240,6 +1240,404 @@ pub fn cmd_status(args: StatusArgs) -> Result<()> {
     display_status(&lockfile);
 
     Ok(())
+}
+
+/// Execute the `aps list` command
+pub fn cmd_list(args: ListArgs) -> Result<()> {
+    let (manifest, manifest_path) = discover_manifest(args.manifest.as_deref())?;
+    let base_dir = manifest_dir(&manifest_path);
+
+    let manifest_display = manifest_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| manifest_path.to_string_lossy().to_string());
+
+    let dim = Style::new().dim();
+    let cyan = Style::new().cyan();
+    let green = Style::new().green();
+    let yellow = Style::new().yellow();
+    let white_bold = Style::new().white().bold();
+
+    println!(
+        "{} {} {}",
+        style("Manifest:").dim(),
+        cyan.apply_to(&manifest_display),
+        dim.apply_to(format!("({} entries)", manifest.entries.len()))
+    );
+    println!();
+
+    // Load lockfile once for status checks
+    let lockfile_path = Lockfile::path_for_manifest(&manifest_path);
+    let lockfile = Lockfile::load(&lockfile_path).ok();
+
+    for (i, entry) in manifest.entries.iter().enumerate() {
+        // Entry header: ID and kind
+        let kind_label = format_kind_label(&entry.kind);
+        println!(
+            "  {} {}",
+            white_bold.apply_to(&entry.id),
+            dim.apply_to(&kind_label),
+        );
+
+        // Source info
+        if entry.is_composite() {
+            println!(
+                "  {} composite ({} sources)",
+                dim.apply_to("Source:"),
+                entry.sources.len()
+            );
+            for (j, src) in entry.sources.iter().enumerate() {
+                let connector = if j == entry.sources.len() - 1 {
+                    "└──"
+                } else {
+                    "├──"
+                };
+                println!(
+                    "  {}  {} {}",
+                    dim.apply_to("       "),
+                    dim.apply_to(connector),
+                    dim.apply_to(format_source_short(src)),
+                );
+            }
+        } else if let Some(ref source) = entry.source {
+            println!(
+                "  {} {}",
+                dim.apply_to("Source:"),
+                dim.apply_to(format_source_short(source)),
+            );
+        }
+
+        // Destination
+        let dest = entry.destination();
+        let dest_display = {
+            let s = dest.to_string_lossy();
+            if s.starts_with("./") || s.starts_with('/') {
+                s.to_string()
+            } else {
+                format!("./{}", s)
+            }
+        };
+        println!(
+            "  {} {}",
+            dim.apply_to("Dest:  "),
+            cyan.apply_to(&dest_display),
+        );
+
+        // Include filter
+        if !entry.include.is_empty() {
+            println!(
+                "  {} {}",
+                dim.apply_to("Filter:"),
+                yellow.apply_to(entry.include.join(", ")),
+            );
+        }
+
+        // On-disk asset tree (when --assets is passed and destination exists)
+        if args.assets {
+            let abs_dest = if dest.is_relative() {
+                base_dir.join(&dest)
+            } else {
+                dest.clone()
+            };
+
+            if abs_dest.is_dir() {
+                println!("  {}", dim.apply_to("Assets:"));
+                print_asset_tree(&abs_dest, &entry.kind, "  ");
+            } else if abs_dest.is_file() {
+                println!(
+                    "  {} {}",
+                    dim.apply_to("Assets:"),
+                    green.apply_to(
+                        abs_dest
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default()
+                    ),
+                );
+            } else {
+                println!(
+                    "  {} {}",
+                    dim.apply_to("Assets:"),
+                    dim.apply_to("(not synced)"),
+                );
+            }
+        }
+
+        // Sync status indicator
+        if let Some(ref lf) = lockfile {
+            if lf.entries.contains_key(&entry.id) {
+                println!("  {} {}", green.apply_to("●"), green.apply_to("synced"));
+            }
+        }
+
+        // Separator between entries (but not after the last)
+        if i < manifest.entries.len() - 1 {
+            println!();
+        }
+    }
+
+    println!();
+
+    // Summary
+    let synced_count = match lockfile {
+        Some(ref lf) => manifest
+            .entries
+            .iter()
+            .filter(|e| lf.entries.contains_key(&e.id))
+            .count(),
+        None => 0,
+    };
+    let total = manifest.entries.len();
+    if synced_count == total {
+        println!(
+            "{}",
+            green.apply_to(format!("All {} entries synced", total))
+        );
+    } else {
+        println!(
+            "{} synced, {} pending",
+            green.apply_to(synced_count),
+            yellow.apply_to(total - synced_count),
+        );
+    }
+
+    Ok(())
+}
+
+/// Format the AssetKind as a human-readable label
+fn format_kind_label(kind: &AssetKind) -> String {
+    match kind {
+        AssetKind::AgentSkill => "agent_skill".to_string(),
+        AssetKind::AgentsMd => "agents_md".to_string(),
+        AssetKind::CompositeAgentsMd => "composite_agents_md".to_string(),
+        AssetKind::CursorRules => "cursor_rules".to_string(),
+        AssetKind::CursorHooks => "cursor_hooks".to_string(),
+        AssetKind::CursorSkillsRoot => "cursor_skills_root".to_string(),
+    }
+}
+
+/// Format a source for compact display
+fn format_source_short(source: &Source) -> String {
+    match source {
+        Source::Git {
+            repo, r#ref, path, ..
+        } => {
+            // Shorten GitHub URLs: https://github.com/owner/repo.git -> owner/repo
+            let short_repo = repo
+                .trim_end_matches(".git")
+                .strip_prefix("https://github.com/")
+                .unwrap_or(repo);
+
+            let ref_part = if r#ref == "auto" {
+                String::new()
+            } else {
+                format!(" @ {}", r#ref)
+            };
+
+            if let Some(p) = path {
+                format!("git: {}{} → {}", short_repo, ref_part, p)
+            } else {
+                format!("git: {}{}", short_repo, ref_part)
+            }
+        }
+        Source::Filesystem {
+            root,
+            path,
+            symlink,
+        } => {
+            let sym_tag = if *symlink { " (symlink)" } else { "" };
+            if let Some(p) = path {
+                format!("fs: {}/{}{}", root, p, sym_tag)
+            } else {
+                format!("fs: {}{}", root, sym_tag)
+            }
+        }
+    }
+}
+
+/// Print a tree view of on-disk assets for a synced entry
+fn print_asset_tree(path: &Path, kind: &AssetKind, indent: &str) {
+    match kind {
+        AssetKind::AgentSkill => print_skill_tree(path, indent),
+        AssetKind::CursorSkillsRoot => print_skill_tree(path, indent),
+        _ => print_flat_tree(path, indent),
+    }
+}
+
+/// Print tree for agent_skill / cursor_skills_root entries.
+/// Groups contents into the well-known skill structure: SKILL.md, scripts/, references/, assets/
+fn print_skill_tree(path: &Path, indent: &str) {
+    let dim = Style::new().dim();
+    let green = Style::new().green();
+    let cyan = Style::new().cyan();
+
+    // If path is a directory containing skill subdirectories, enumerate each
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    let mut items: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name() != ".git")
+        .collect();
+    items.sort_by_key(|e| e.file_name());
+
+    // Check if this is a single skill directory (contains SKILL.md directly)
+    let has_skill_md = items.iter().any(|e| {
+        e.file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("skill.md")
+    });
+
+    if has_skill_md {
+        // This is a single skill folder - show its structure
+        print_single_skill_contents(&items, indent);
+    } else {
+        // This is a directory of skills - enumerate each
+        let total = items.len();
+        for (i, item) in items.iter().enumerate() {
+            let is_last = i == total - 1;
+            let connector = if is_last { "└── " } else { "├── " };
+            let name = item.file_name();
+            let name = name.to_string_lossy();
+
+            if item.path().is_dir() {
+                println!(
+                    "{}{}{}{}",
+                    indent,
+                    dim.apply_to(connector),
+                    cyan.apply_to(&*name),
+                    dim.apply_to("/"),
+                );
+
+                // Check if subdirectory is a skill (has SKILL.md)
+                let sub_indent = if is_last {
+                    format!("{}    ", indent)
+                } else {
+                    format!("{}│   ", indent)
+                };
+
+                let sub_entries = match std::fs::read_dir(item.path()) {
+                    Ok(entries) => {
+                        let mut items: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+                        items.sort_by_key(|e| e.file_name());
+                        items
+                    }
+                    Err(_) => continue,
+                };
+
+                print_single_skill_contents(&sub_entries, &sub_indent);
+            } else {
+                println!(
+                    "{}{}{}",
+                    indent,
+                    dim.apply_to(connector),
+                    green.apply_to(&*name),
+                );
+            }
+        }
+    }
+}
+
+/// Print the contents of a single skill directory, highlighting well-known structure
+fn print_single_skill_contents(items: &[std::fs::DirEntry], indent: &str) {
+    let dim = Style::new().dim();
+    let green = Style::new().green();
+    let cyan = Style::new().cyan();
+    let yellow = Style::new().yellow();
+
+    // Categorize items into well-known skill directories and other files
+    let well_known_dirs = ["scripts", "references", "assets"];
+
+    let total = items.len();
+    for (i, item) in items.iter().enumerate() {
+        let is_last = i == total - 1;
+        let connector = if is_last { "└── " } else { "├── " };
+        let name = item.file_name();
+        let name_str = name.to_string_lossy();
+
+        if item.path().is_dir() {
+            let dir_style = if well_known_dirs.contains(&name_str.as_ref()) {
+                &yellow
+            } else {
+                &cyan
+            };
+
+            // Count children
+            let child_count = std::fs::read_dir(item.path())
+                .map(|rd| rd.filter_map(|e| e.ok()).count())
+                .unwrap_or(0);
+
+            println!(
+                "{}{}{}{}  {}",
+                indent,
+                dim.apply_to(connector),
+                dir_style.apply_to(&*name_str),
+                dim.apply_to("/"),
+                dim.apply_to(format!("({} items)", child_count)),
+            );
+        } else {
+            // Highlight SKILL.md specially
+            let file_style = if name_str.eq_ignore_ascii_case("skill.md") {
+                &green
+            } else {
+                &dim
+            };
+            println!(
+                "{}{}{}",
+                indent,
+                dim.apply_to(connector),
+                file_style.apply_to(&*name_str),
+            );
+        }
+    }
+}
+
+/// Print a simple flat tree for non-skill asset types
+fn print_flat_tree(path: &Path, indent: &str) {
+    let dim = Style::new().dim();
+    let green = Style::new().green();
+
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    let mut items: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name() != ".git")
+        .collect();
+    items.sort_by_key(|e| e.file_name());
+
+    let total = items.len();
+    for (i, item) in items.iter().enumerate() {
+        let is_last = i == total - 1;
+        let connector = if is_last { "└── " } else { "├── " };
+        let name = item.file_name();
+        let name_str = name.to_string_lossy();
+
+        if item.path().is_dir() {
+            let child_count = std::fs::read_dir(item.path())
+                .map(|rd| rd.filter_map(|e| e.ok()).count())
+                .unwrap_or(0);
+            println!(
+                "{}{}{}{}  {}",
+                indent,
+                dim.apply_to(connector),
+                green.apply_to(&*name_str),
+                dim.apply_to("/"),
+                dim.apply_to(format!("({} items)", child_count)),
+            );
+        } else {
+            println!(
+                "{}{}{}",
+                indent,
+                dim.apply_to(connector),
+                green.apply_to(&*name_str),
+            );
+        }
+    }
 }
 
 /// Execute the `aps catalog generate` command

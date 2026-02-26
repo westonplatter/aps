@@ -17,7 +17,9 @@ mod sync_output;
 
 use clap::Parser;
 use cli::{CatalogCommands, Cli, Commands};
-use commands::{cmd_add, cmd_catalog_generate, cmd_init, cmd_status, cmd_sync, cmd_validate};
+use commands::{
+    cmd_add, cmd_catalog_generate, cmd_init, cmd_list, cmd_status, cmd_sync, cmd_validate,
+};
 use miette::Result;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -49,6 +51,7 @@ fn main() -> Result<()> {
         Commands::Sync(args) => cmd_sync(args),
         Commands::Validate(args) => cmd_validate(args),
         Commands::Status(args) => cmd_status(args),
+        Commands::List(args) => cmd_list(args),
         Commands::Catalog(args) => match args.command {
             CatalogCommands::Generate(gen_args) => cmd_catalog_generate(gen_args),
         },

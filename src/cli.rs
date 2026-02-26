@@ -35,6 +35,9 @@ pub enum Commands {
     /// Display status from lockfile
     Status(StatusArgs),
 
+    /// List manifest entries and their resources
+    List(ListArgs),
+
     /// Catalog operations for asset discovery
     Catalog(CatalogArgs),
 }
@@ -154,6 +157,17 @@ pub struct StatusArgs {
     /// Path to the manifest file
     #[arg(long)]
     pub manifest: Option<PathBuf>,
+}
+
+#[derive(Parser, Debug)]
+pub struct ListArgs {
+    /// Path to the manifest file
+    #[arg(long)]
+    pub manifest: Option<PathBuf>,
+
+    /// Show on-disk asset tree for synced entries
+    #[arg(long)]
+    pub assets: bool,
 }
 
 #[derive(Parser, Debug)]
