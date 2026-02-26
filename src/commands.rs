@@ -1484,7 +1484,11 @@ fn print_skill_tree(path: &Path, indent: &str) {
     items.sort_by_key(|e| e.file_name());
 
     // Check if this is a single skill directory (contains SKILL.md directly)
-    let has_skill_md = items.iter().any(|e| e.file_name() == "SKILL.md");
+    let has_skill_md = items.iter().any(|e| {
+        e.file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("skill.md")
+    });
 
     if has_skill_md {
         // This is a single skill folder - show its structure
@@ -1575,7 +1579,11 @@ fn print_single_skill_contents(items: &[std::fs::DirEntry], indent: &str) {
             );
         } else {
             // Highlight SKILL.md specially
-            let file_style = if name_str == "SKILL.md" { &green } else { &dim };
+            let file_style = if name_str.eq_ignore_ascii_case("skill.md") {
+                &green
+            } else {
+                &dim
+            };
             println!(
                 "{}{}{}",
                 indent,
