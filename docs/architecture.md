@@ -120,6 +120,12 @@ pub struct GitSource {
 4. If mismatch → clone and install
 ```
 
+**Per-run clone reuse:**
+
+- During `aps sync`, git clones are cached in-memory per run.
+- Entries that share the same repo/ref/shallow (or repo/commit in locked mode) reuse the same temporary clone.
+- The cache is dropped at the end of the run, so temp directories are cleaned up as usual.
+
 ### Enum-to-Adapter Bridge
 
 The manifest uses a `Source` enum for YAML serialization, which bridges to the trait implementations:

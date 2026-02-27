@@ -55,20 +55,22 @@ pub struct InitArgs {
 
 #[derive(Parser, Debug)]
 pub struct AddArgs {
-    /// GitHub URL or local filesystem path to a skill folder or repository.
-    /// Supports: GitHub URLs (https://github.com/owner/repo/...) and local
-    /// paths ($HOME/skills, ~/skills, ./skills). For repo-level URLs or
-    /// directories without SKILL.md, discovers skills and prompts for selection.
-    #[arg(value_name = "URL_OR_PATH")]
-    pub url: String,
+    /// Optional asset type (agent_skill, cursor_rules, cursor_skills_root, agents_md).
+    /// If omitted, defaults to agent_skill. When given, must be followed by URL or path.
+    #[arg(value_name = "ASSET_TYPE_OR_URL", num_args = 1..=2, required = true)]
+    pub positionals: Vec<String>,
 
-    /// Custom entry ID (defaults to skill folder name)
+    /// Custom entry ID (defaults to repo or path name)
     #[arg(long)]
     pub id: Option<String>,
 
-    /// Asset kind (defaults to agent_skill)
-    #[arg(long, value_enum, default_value = "agent-skill")]
-    pub kind: AddAssetKind,
+    /// Path within the repository (overrides any path from a GitHub URL)
+    #[arg(long)]
+    pub path: Option<String>,
+
+    /// Git ref (branch/tag/commit) to use (defaults to auto for repo URLs)
+    #[arg(long = "ref")]
+    pub git_ref: Option<String>,
 
     /// Path to the manifest file
     #[arg(long)]
@@ -85,19 +87,6 @@ pub struct AddArgs {
     /// Skip confirmation prompts
     #[arg(long, short = 'y')]
     pub yes: bool,
-}
-
-#[derive(ValueEnum, Clone, Debug, Default)]
-pub enum AddAssetKind {
-    #[default]
-    #[value(name = "agent-skill")]
-    AgentSkill,
-    #[value(name = "cursor-rules")]
-    CursorRules,
-    #[value(name = "cursor-skills-root")]
-    CursorSkillsRoot,
-    #[value(name = "agents-md")]
-    AgentsMd,
 }
 
 #[derive(ValueEnum, Clone, Debug, Default)]

@@ -208,6 +208,14 @@ impl Source {
         }
     }
 
+    /// Get shallow clone setting for git sources
+    pub fn git_shallow(&self) -> Option<bool> {
+        match self {
+            Source::Git { shallow, .. } => Some(*shallow),
+            Source::Filesystem { .. } => None,
+        }
+    }
+
     /// Get the path within a git source (for cloning at specific commits)
     pub fn git_path(&self) -> Option<&str> {
         match self {

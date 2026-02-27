@@ -24,6 +24,7 @@
 - **Composable AGENTS.md** - Merge multiple AGENTS.md files from local or remote sources into one
 - **Safe installs** - Automatic conflict detection and backup creation
 - **Deterministic lockfile** - Idempotent syncs that only update when needed
+- **Optimized Git Operations** - Smart caching reuses clones and skips unchanged commits for fast syncs
 
 ## Installation
 
@@ -78,17 +79,23 @@ cargo build --release
 
    This creates a `aps.yaml` manifest file with an example entry.
 
-2. **Add skills directly from GitHub URLs:**
+2. **Add assets directly from git repositories:**
 
    ```bash
    # Add a skill from a GitHub URL - automatically syncs the skill
-   aps add https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
+   aps add agent_skill https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md
 
    # Or use the folder URL (SKILL.md is auto-detected)
-   aps add https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
+   aps add agent_skill https://github.com/hashicorp/agent-skills/tree/main/terraform/module-generation/skills/refactor-module
+
+   # Add Cursor rules from a private repo (SSH)
+   aps add cursor_rules git@github.com:org/private-rules.git
+
+   # Add a private skill with an explicit path
+   aps add agent_skill git@github.com:org/private-skills.git --path skills/refactor-module
    ```
 
-   This parses the GitHub URL, adds an entry to `aps.yaml`, and syncs **only that skill** immediately (other entries are not affected).
+   This parses the repository identifier, adds an entry to `aps.yaml`, and syncs **only that asset** immediately (other entries are not affected).
 
 3. **Or manually edit the manifest** to define your assets:
 
@@ -120,7 +127,7 @@ cargo build --release
 | Command        | Description                                       |
 | -------------- | ------------------------------------------------- |
 | `aps init`     | Create a new manifest file and update .gitignore  |
-| `aps add`      | Add a skill from a GitHub URL and sync it         |
+| `aps add`      | Add an asset from a git repo and sync it          |
 | `aps sync`     | Sync all entries from manifest and install assets |
 | `aps validate` | Validate manifest schema and check sources        |
 | `aps status`   | Display last sync information from lockfile       |
@@ -133,8 +140,10 @@ cargo build --release
 
 ### Add Options
 
-- `--id <name>` - Custom entry ID (defaults to skill folder name)
-- `--kind <type>` - Asset kind: `agent-skill`, `cursor-rules`, `cursor-skills-root`, `agents-md` (default: `agent-skill`)
+- `aps add <asset_type> <repo_url_or_path>` - Asset types: `agent_skill`, `cursor_rules`, `cursor_skills_root`, `agents_md`
+- `--id <name>` - Custom entry ID (defaults to repo or path name)
+- `--path <path>` - Path within the repository (required for `agent_skill` when using SSH/HTTPS repo URLs)
+- `--ref <ref>` - Git ref (branch/tag/commit) to use
 - `--no-sync` - Only add to manifest, don't sync immediately
 - `--all` - Add all discovered skills without prompting (for repo-level URLs or directories)
 - `--yes` / `-y` - Skip confirmation prompts
@@ -207,11 +216,34 @@ aps add --yes https://github.com/anthropics/skills
 
 When you run `aps sync`:
 
-1. **Entries are synced** - Each entry in `aps.yaml` is installed to its destination
-2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in `aps.yaml` are automatically removed
-3. **Lockfile is saved** - The updated lockfile is written to disk
+1. **Entries are synced** - Each entry in your manifest (by default `aps.yaml`) is installed to its destination (git sources reuse cached clones for speed)
+2. **Stale entries are cleaned** - Entries in the lockfile that no longer exist in the manifest are automatically removed
+3. **Lockfile is saved** - The updated lockfile is written to disk, next to the manifest
 
 Note: Stale entry cleanup only happens during a full sync. When using `--only <id>` to sync specific entries, other lockfile entries are preserved.
+
+### Example Sync Output
+
+When syncing a manifest with multiple entries, `aps sync` now shows per-entry progress so you can see work as it happens:
+
+```bash
+$ aps sync
+
+(1/3) Syncing my-agents from filesystem $HOME/agents-md-partials (AGENTS.md)...
+(1/3) Finished my-agents in 0.12s [synced]
+(2/3) Syncing composite-agents from 3 composite source(s)...
+(2/3) Finished composite-agents in 0.45s [copied]
+(3/3) Syncing company-rules from git repo git@github.com:your-username/dotfiles.git...
+(3/3) Finished company-rules in 1.23s [synced]
+
+Syncing from aps.yaml
+
+  ✓ my-agents           → ./AGENTS.md         [synced]
+  · composite-agents    → ./AGENTS.md         [current]
+  ✓ company-rules       → ./.cursor/rules/    [synced]
+
+2 synced, 1 current
+```
 
 ## Configuration
 
@@ -346,9 +378,19 @@ Key features:
 - **Order preserved**: Files are merged in the order specified in `sources`
 - **Auto-generated header**: Output includes a comment indicating it was composed by aps
 
-### Lockfile (`aps.lock.yaml`)
+### Lockfile (manifest-based)
 
-The lockfile tracks installed assets and is automatically created/updated by `aps sync`. **This file should be committed to version control** to ensure reproducible installations across your team. It stores:
+The lockfile tracks installed assets and is automatically created/updated by `aps sync`. **This file should be committed to version control** to ensure reproducible installations across your team.
+
+The lockfile name is derived from the manifest filename:
+
+- `aps.yaml` → `aps.lock.yaml`
+- `aps-rules.yaml` → `aps-rules.lock.yaml`
+- `custom` → `custom.lock.yaml`
+
+This means you can keep multiple manifests in the same repository, each with its own lockfile, without conflicts.
+
+Each lockfile stores:
 
 - APS version that generated/modified the lockfile
 - Source information
@@ -357,6 +399,8 @@ The lockfile tracks installed assets and is automatically created/updated by `ap
 - Content checksum (SHA256)
 
 **Environment Variables Are Preserved**: Unlike other package managers (npm, uv, bundler) that expand environment variables to concrete paths, `aps` preserves shell variables like `$HOME` in the lockfile. This makes lockfiles portable across different machines and users who have the same relative directory structure.
+
+**Legacy lockfiles**: For backward compatibility, `aps` still recognizes historical lockfile names (`aps.lock.yaml`, `aps.manifest.lock`) when loading. On the next successful `aps sync`, these legacy files are migrated to the manifest-based name and the old files are cleaned up.
 
 ## Examples
 

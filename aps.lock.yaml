@@ -1,6 +1,18 @@
 version: 1
 aps_version: 0.1.11
 entries:
+  skill-creator:
+    source: https://github.com/anthropics/skills.git
+    dest: .claude/skills/skill-creator/
+    resolved_ref: main
+    commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
+    checksum: sha256:bdd5389ea8390277b8310b83eaa561a703c2fa08bbcf770e6394d42571f7445f
+  anthropic-skills:
+    source: https://github.com/anthropics/skills.git
+    dest: ./.claude/skills/
+    resolved_ref: main
+    commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
+    checksum: sha256:3bd37a1929706db495f2609910316bb1a385a057556deb151f968e877aef39e9
   composite-agents-md:
     source:
       composite:
@@ -8,21 +20,9 @@ entries:
         - https://github.com/westonplatter/agentically.git:agents-md-partials/AGENTS.pull-requests.md
     dest: ./AGENTS.md
     checksum: sha256:11eedede54fa5217e041f613adc9f692b985972e8487261e720fc553d707bdbf
-  anthropic-skills:
-    source: https://github.com/anthropics/skills.git
-    dest: ./.claude/skills/
-    resolved_ref: main
-    commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
-    checksum: sha256:3bd37a1929706db495f2609910316bb1a385a057556deb151f968e877aef39e9
   internal-comms:
     source: https://github.com/anthropics/skills.git
     dest: .claude/skills/internal-comms/
     resolved_ref: main
     commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
     checksum: sha256:b353d2d5223c9b5154f52a1d1b87c65bd0f2ed9eac5e541e88e72b4c4a614743
-  skill-creator:
-    source: https://github.com/anthropics/skills.git
-    dest: .claude/skills/skill-creator/
-    resolved_ref: main
-    commit: 1ed29a03dc852d30fa6ef2ca53a67dc2c2c2c563
-    checksum: sha256:bdd5389ea8390277b8310b83eaa561a703c2fa08bbcf770e6394d42571f7445f

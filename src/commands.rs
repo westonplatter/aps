@@ -7,7 +7,7 @@ use crate::discover::{
     discover_skills_in_local_dir, discover_skills_in_repo, prompt_skill_selection,
 };
 use crate::error::{ApsError, Result};
-use crate::github_url::parse_github_url;
+use crate::github_url::{parse_github_url, parse_repo_identifier};
 use crate::hooks::validate_cursor_hooks;
 use crate::install::{install_composite_entry, install_entry, InstallOptions, InstallResult};
 use crate::lockfile::{display_status, Lockfile};
@@ -16,6 +16,7 @@ use crate::manifest::{
     validate_manifest, AssetKind, Entry, Manifest, Source, DEFAULT_MANIFEST_NAME,
 };
 use crate::orphan::{detect_orphaned_paths, prompt_and_cleanup_orphans};
+use crate::sources::GitCloneCache;
 use crate::sync_output::{print_sync_results, print_sync_summary, SyncDisplayItem, SyncStatus};
 use console::{style, Style};
 use std::fs;
@@ -80,7 +81,11 @@ fn is_local_path(input: &str) -> bool {
 }
 
 /// Parse the add target into a typed enum for routing.
-fn parse_add_target(url_or_path: &str, all_flag: bool) -> Result<ParsedAddTarget> {
+fn parse_add_target(
+    url_or_path: &str,
+    all_flag: bool,
+    asset_kind: &AssetKind,
+) -> Result<ParsedAddTarget> {
     if is_local_path(url_or_path) {
         // Check if it contains a SKILL.md (single-skill) or not (discovery)
         let expanded = shellexpand::full(url_or_path)
@@ -117,19 +122,72 @@ fn parse_add_target(url_or_path: &str, all_flag: bool) -> Result<ParsedAddTarget
             })
         }
     } else if !url_or_path.contains("://") {
-        // No URL scheme and is_local_path returned false — the path doesn't exist
-        let expanded = shellexpand::full(url_or_path)
-            .map(|s| s.into_owned())
-            .unwrap_or_else(|_| url_or_path.to_string());
+        // Could be SSH URL (git@host:path) or invalid — try parse_repo_identifier first
+        if let Ok(parsed) = parse_repo_identifier(url_or_path) {
+            let repo_url = parsed.repo_url;
+            let git_ref = parsed.git_ref.unwrap_or_else(|| "auto".to_string());
+            let path = parsed.path.unwrap_or_default();
+            let is_repo_level = path.is_empty();
+            // Repo-level + non-AgentSkill: add single entry with default path for kind (no clone)
+            if is_repo_level && *asset_kind != AssetKind::AgentSkill {
+                let skill_path = default_path_for_kind(asset_kind).unwrap_or_default();
+                return Ok(ParsedAddTarget::GitHubSkill {
+                    repo_url,
+                    git_ref,
+                    skill_path,
+                    skill_name: None,
+                });
+            }
+            if is_repo_level || all_flag {
+                return Ok(ParsedAddTarget::GitHubDiscovery {
+                    repo_url,
+                    git_ref,
+                    search_path: path,
+                });
+            }
+            let skill_name = path
+                .rsplit('/')
+                .next()
+                .filter(|s| !s.is_empty())
+                .map(String::from);
+            return Ok(ParsedAddTarget::GitHubSkill {
+                repo_url,
+                git_ref,
+                skill_path: path,
+                skill_name,
+            });
+        }
+        // Not a path and not a valid URL
+        let looks_like_path = url_or_path.starts_with('/')
+            || url_or_path.starts_with('~')
+            || url_or_path.starts_with('.')
+            || url_or_path.starts_with("$HOME")
+            || url_or_path.starts_with("$USER");
         Err(ApsError::InvalidInput {
-            message: format!(
-                "Path '{}' does not exist; provide an existing local path or a valid URL",
-                expanded
-            ),
+            message: if looks_like_path {
+                format!(
+                    "Path '{}' does not exist; provide an existing local path or a valid URL",
+                    url_or_path
+                )
+            } else {
+                "Expected an HTTPS/SSH Git URL, GitHub blob/tree URL, or existing local path"
+                    .to_string()
+            },
         })
     } else {
-        // Parse as GitHub URL
+        // Parse as GitHub URL (https)
         let parsed = parse_github_url(url_or_path)?;
+        // Repo-level + non-AgentSkill: add single entry with default path for kind (no clone)
+        if (parsed.is_repo_level || parsed.path.is_empty()) && *asset_kind != AssetKind::AgentSkill
+        {
+            let skill_path = default_path_for_kind(asset_kind).unwrap_or_default();
+            return Ok(ParsedAddTarget::GitHubSkill {
+                repo_url: parsed.repo_url,
+                git_ref: parsed.git_ref,
+                skill_path,
+                skill_name: None,
+            });
+        }
         if parsed.is_repo_level || all_flag {
             Ok(ParsedAddTarget::GitHubDiscovery {
                 repo_url: parsed.repo_url,
@@ -137,9 +195,8 @@ fn parse_add_target(url_or_path: &str, all_flag: bool) -> Result<ParsedAddTarget
                 search_path: parsed.path,
             })
         } else {
-            // Compute derived values before moving fields
             let skill_path = parsed.skill_path().to_string();
-            let skill_name = parsed.skill_name().map(|s| s.to_string());
+            let skill_name = parsed.skill_name().map(|s: &str| s.to_string());
             Ok(ParsedAddTarget::GitHubSkill {
                 repo_url: parsed.repo_url,
                 git_ref: parsed.git_ref,
@@ -241,9 +298,47 @@ fn update_gitignore(manifest_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Parse add positionals: 1 arg => (AgentSkill, url), 2 args => (parse first as kind, second as url).
+fn parse_add_positionals(positionals: &[String]) -> Result<(AssetKind, String)> {
+    match positionals.len() {
+        1 => Ok((AssetKind::AgentSkill, positionals[0].clone())),
+        2 => {
+            let kind = parse_asset_kind(&positionals[0])?;
+            Ok((kind, positionals[1].clone()))
+        }
+        _ => Err(ApsError::InvalidAddArguments {
+            message: "Expected either <url_or_path> or <asset_type> <url_or_path>".to_string(),
+        }),
+    }
+}
+
 /// Execute the `aps add` command
 pub fn cmd_add(args: AddArgs) -> Result<()> {
-    let target = parse_add_target(&args.url, args.all)?;
+    let (asset_kind, url) = parse_add_positionals(&args.positionals)?;
+    let mut target = parse_add_target(&url, args.all, &asset_kind)?;
+
+    // --path overrides: treat repo-level as single entry with that path (no discovery/clone on add)
+    if let ParsedAddTarget::GitHubDiscovery {
+        repo_url,
+        git_ref,
+        search_path,
+    } = &target
+    {
+        if let Some(ref path) = args.path {
+            target = ParsedAddTarget::GitHubSkill {
+                repo_url: repo_url.clone(),
+                git_ref: git_ref.clone(),
+                skill_path: path.clone(),
+                skill_name: path
+                    .rsplit('/')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .map(String::from),
+            };
+        } else if search_path.is_empty() && asset_kind == AssetKind::AgentSkill {
+            // Repo-level agent_skill with no path: keep discovery (will clone to find skills)
+        }
+    }
 
     match target {
         ParsedAddTarget::GitHubSkill {
@@ -251,29 +346,26 @@ pub fn cmd_add(args: AddArgs) -> Result<()> {
             git_ref,
             skill_path,
             skill_name,
-        } => cmd_add_single_git(args, &repo_url, &git_ref, &skill_path, skill_name),
+        } => cmd_add_single_git(
+            args,
+            asset_kind,
+            &repo_url,
+            &git_ref,
+            &skill_path,
+            skill_name,
+        ),
         ParsedAddTarget::GitHubDiscovery {
             repo_url,
             git_ref,
             search_path,
-        } => cmd_add_discover_git(args, &repo_url, &git_ref, &search_path),
+        } => cmd_add_discover_git(args, asset_kind, &repo_url, &git_ref, &search_path),
         ParsedAddTarget::FilesystemSkill {
             original_path,
             skill_name,
-        } => cmd_add_single_filesystem(args, &original_path, &skill_name),
+        } => cmd_add_single_filesystem(args, asset_kind, &original_path, &skill_name),
         ParsedAddTarget::FilesystemDiscovery { original_path } => {
-            cmd_add_discover_filesystem(args, &original_path)
+            cmd_add_discover_filesystem(args, asset_kind, &original_path)
         }
-    }
-}
-
-/// Convert CLI asset kind to manifest asset kind.
-fn resolve_asset_kind(kind: &AddAssetKind) -> AssetKind {
-    match kind {
-        AddAssetKind::AgentSkill => AssetKind::AgentSkill,
-        AddAssetKind::CursorRules => AssetKind::CursorRules,
-        AddAssetKind::CursorSkillsRoot => AssetKind::CursorSkillsRoot,
-        AddAssetKind::AgentsMd => AssetKind::AgentsMd,
     }
 }
 
@@ -399,10 +491,7 @@ fn maybe_sync(
             upgrade: false,
         })?;
     } else {
-        println!(
-            "Run `aps sync` to install the skill{}.",
-            if entry_ids.len() > 1 { "s" } else { "" }
-        );
+        println!("Run `aps sync` to install.");
     }
 
     Ok(())
@@ -415,6 +504,7 @@ fn maybe_sync(
 /// Add a single skill from a GitHub URL.
 fn cmd_add_single_git(
     args: AddArgs,
+    asset_kind: AssetKind,
     repo_url: &str,
     git_ref: &str,
     skill_path: &str,
@@ -426,8 +516,6 @@ fn cmd_add_single_git(
 
     // For single-skill adds, check for duplicate ID upfront
     check_duplicate_id(&entry_id, args.manifest.as_deref())?;
-
-    let asset_kind = resolve_asset_kind(&args.kind);
 
     let entry = Entry {
         id: entry_id.clone(),
@@ -460,6 +548,7 @@ fn cmd_add_single_git(
 /// Discover and add skills from a GitHub repository.
 fn cmd_add_discover_git(
     args: AddArgs,
+    asset_kind: AssetKind,
     repo_url: &str,
     git_ref: &str,
     search_path: &str,
@@ -472,7 +561,7 @@ fn cmd_add_discover_git(
         shallow: true,
         path: Some(skill.repo_path.clone()),
     };
-    cmd_add_discovered(args, skills, source_builder, repo_url)
+    cmd_add_discovered(args, skills, source_builder, repo_url, asset_kind)
 }
 
 // ============================================================================
@@ -480,12 +569,15 @@ fn cmd_add_discover_git(
 // ============================================================================
 
 /// Add a single skill from a local filesystem path.
-fn cmd_add_single_filesystem(args: AddArgs, original_path: &str, skill_name: &str) -> Result<()> {
+fn cmd_add_single_filesystem(
+    args: AddArgs,
+    asset_kind: AssetKind,
+    original_path: &str,
+    skill_name: &str,
+) -> Result<()> {
     let entry_id = args.id.unwrap_or_else(|| skill_name.to_string());
 
     check_duplicate_id(&entry_id, args.manifest.as_deref())?;
-
-    let asset_kind = resolve_asset_kind(&args.kind);
 
     let entry = Entry {
         id: entry_id.clone(),
@@ -515,7 +607,11 @@ fn cmd_add_single_filesystem(args: AddArgs, original_path: &str, skill_name: &st
 }
 
 /// Discover and add skills from a local filesystem directory.
-fn cmd_add_discover_filesystem(args: AddArgs, original_path: &str) -> Result<()> {
+fn cmd_add_discover_filesystem(
+    args: AddArgs,
+    asset_kind: AssetKind,
+    original_path: &str,
+) -> Result<()> {
     println!("Searching for skills in {}...\n", original_path);
     let skills = discover_skills_in_local_dir(original_path)?;
     let source_builder = |skill: &DiscoveredSkill| Source::Filesystem {
@@ -523,7 +619,7 @@ fn cmd_add_discover_filesystem(args: AddArgs, original_path: &str) -> Result<()>
         symlink: true,
         path: Some(skill.repo_path.clone()),
     };
-    cmd_add_discovered(args, skills, source_builder, original_path)
+    cmd_add_discovered(args, skills, source_builder, original_path, asset_kind)
 }
 
 // ============================================================================
@@ -540,6 +636,7 @@ fn cmd_add_discovered(
     skills: Vec<DiscoveredSkill>,
     source_builder: impl Fn(&DiscoveredSkill) -> Source,
     location: &str,
+    asset_kind: AssetKind,
 ) -> Result<()> {
     if skills.is_empty() {
         return Err(ApsError::NoSkillsFound {
@@ -685,8 +782,6 @@ fn cmd_add_discovered(
             }
         };
 
-        let asset_kind = resolve_asset_kind(&args.kind);
-
         let entries: Vec<Entry> = to_add
             .iter()
             .map(|skill| {
@@ -828,6 +923,86 @@ fn select_skills(skills: &[DiscoveredSkill], defaults: &[bool], all: bool) -> Re
     }
 }
 
+fn sync_status_for_result(result: &InstallResult) -> SyncStatus {
+    if !result.warnings.is_empty() {
+        SyncStatus::Warning
+    } else if result.skipped_no_change && result.upgrade_available.is_some() {
+        SyncStatus::Upgradable
+    } else if result.skipped_no_change {
+        SyncStatus::Current
+    } else if result.was_symlink {
+        SyncStatus::Synced
+    } else {
+        SyncStatus::Copied
+    }
+}
+
+fn sync_status_label(status: SyncStatus) -> &'static str {
+    match status {
+        SyncStatus::Synced => "synced",
+        SyncStatus::Copied => "copied",
+        SyncStatus::Current => "current",
+        SyncStatus::Upgradable => "upgrade available",
+        SyncStatus::Warning => "warning",
+        SyncStatus::Error => "error",
+    }
+}
+
+fn progress_style_for_status(status: SyncStatus) -> Style {
+    match status {
+        SyncStatus::Synced | SyncStatus::Copied => Style::new().green(),
+        SyncStatus::Current => Style::new().dim(),
+        SyncStatus::Upgradable => Style::new().color256(208),
+        SyncStatus::Warning => Style::new().yellow(),
+        SyncStatus::Error => Style::new().red(),
+    }
+}
+
+fn format_entry_source(entry: &Entry) -> String {
+    if entry.is_composite() {
+        return format!("{} composite source(s)", entry.sources.len());
+    }
+
+    match &entry.source {
+        Some(Source::Git { repo, .. }) => format!("git repo {}", repo),
+        Some(Source::Filesystem { root, path, .. }) => match path {
+            Some(p) => format!("filesystem {} ({})", root, p),
+            None => format!("filesystem {}", root),
+        },
+        None => "no source configured".to_string(),
+    }
+}
+
+fn parse_asset_kind(input: &str) -> Result<AssetKind> {
+    let normalized = input.trim().replace('-', "_");
+    let kind = AssetKind::from_str(&normalized)?;
+    if !matches!(
+        kind,
+        AssetKind::AgentSkill
+            | AssetKind::CursorRules
+            | AssetKind::CursorSkillsRoot
+            | AssetKind::AgentsMd
+    ) {
+        return Err(ApsError::InvalidAddArguments {
+            message: format!(
+                "Asset type '{}' is not supported by `aps add` yet. Supported types: agent_skill, cursor_rules, cursor_skills_root, agents_md",
+                normalized
+            ),
+        });
+    }
+    Ok(kind)
+}
+
+fn default_path_for_kind(kind: &AssetKind) -> Option<String> {
+    match kind {
+        AssetKind::CursorRules => Some(".cursor/rules".to_string()),
+        AssetKind::CursorHooks => Some(".cursor".to_string()),
+        AssetKind::CursorSkillsRoot => Some(".cursor/skills".to_string()),
+        AssetKind::AgentsMd => Some("AGENTS.md".to_string()),
+        AssetKind::AgentSkill | AssetKind::CompositeAgentsMd => None,
+    }
+}
+
 /// Execute the `aps sync` command
 pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     // Discover and load manifest
@@ -874,20 +1049,69 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
         strict: args.strict,
         upgrade: args.upgrade,
     };
+    let mut git_cache = GitCloneCache::new();
 
     // Detect orphaned paths (destinations that changed)
     let orphans = detect_orphaned_paths(&entries_to_install, &lockfile, &base_dir);
 
-    // Install selected entries
+    // Install selected entries with progressive feedback
+    let total = entries_to_install.len();
     let mut results: Vec<InstallResult> = Vec::new();
-    for entry in &entries_to_install {
+    for (index, entry) in entries_to_install.iter().enumerate() {
+        let ordinal = index + 1;
+        let source_desc = format_entry_source(entry);
+        println!(
+            "({}/{}) {} {} {}",
+            ordinal,
+            total,
+            style("Syncing").dim(),
+            style(&entry.id).cyan().bold(),
+            style(format!("from {}...", source_desc)).dim(),
+        );
+        std::io::stdout().flush().ok();
+
+        let start = std::time::Instant::now();
+
         // Use composite install for composite entries, regular install otherwise
         let result = if entry.is_composite() {
-            install_composite_entry(entry, &base_dir, &lockfile, &options)?
+            install_composite_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)
         } else {
-            install_entry(entry, &base_dir, &lockfile, &options)?
+            install_entry(entry, &base_dir, &lockfile, &options, &mut git_cache)
         };
-        results.push(result);
+
+        match result {
+            Ok(result) => {
+                let elapsed = start.elapsed();
+                let status = sync_status_for_result(&result);
+                let label = sync_status_label(status);
+                let status_style = progress_style_for_status(status);
+                println!(
+                    "({}/{}) {} {} {} {}",
+                    ordinal,
+                    total,
+                    style("Finished").dim(),
+                    style(&entry.id).cyan().bold(),
+                    style(format!("in {:.2?}", elapsed)).dim(),
+                    status_style.apply_to(format!("[{}]", label)),
+                );
+                std::io::stdout().flush().ok();
+                results.push(result);
+            }
+            Err(err) => {
+                let elapsed = start.elapsed();
+                let error_style = Style::new().red();
+                eprintln!(
+                    "({}/{}) {} {} {}: {}",
+                    ordinal,
+                    total,
+                    error_style.apply_to("Failed"),
+                    style(&entry.id).cyan().bold(),
+                    style(format!("after {:.2?}", elapsed)).dim(),
+                    error_style.apply_to(err.to_string()),
+                );
+                return Err(err);
+            }
+        }
     }
 
     // Cleanup orphaned paths after successful install
@@ -925,17 +1149,7 @@ pub fn cmd_sync(args: SyncArgs) -> Result<()> {
     let display_items: Vec<SyncDisplayItem> = results
         .iter()
         .map(|r| {
-            let status = if !r.warnings.is_empty() {
-                SyncStatus::Warning
-            } else if r.skipped_no_change && r.upgrade_available.is_some() {
-                SyncStatus::Upgradable
-            } else if r.skipped_no_change {
-                SyncStatus::Current
-            } else if r.was_symlink {
-                SyncStatus::Synced
-            } else {
-                SyncStatus::Copied
-            };
+            let status = sync_status_for_result(r);
 
             let mut item = SyncDisplayItem::new(
                 r.id.clone(),

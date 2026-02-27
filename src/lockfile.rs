@@ -5,11 +5,18 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
-/// Default lockfile filename
-pub const LOCKFILE_NAME: &str = "aps.lock.yaml";
-
-/// Legacy lockfile filename (for backward compatibility)
-const LEGACY_LOCKFILE_NAME: &str = "aps.manifest.lock";
+/// Legacy lockfile filenames (for backward compatibility).
+///
+/// Historically, APS used fixed lockfile names that were not derived from the
+/// manifest filename:
+/// - "aps.lock.yaml"      (current default for aps.yaml)
+/// - "aps.manifest.lock"  (older legacy name)
+///
+/// Newer versions derive the lockfile name from the manifest filename
+/// (e.g. aps-foo.yaml -> aps-foo.lock.yaml). These legacy names are still
+/// recognized when loading and are automatically migrated to the new
+/// manifest-based name on save.
+const LEGACY_LOCKFILE_NAMES: &[&str] = &["aps.lock.yaml", "aps.manifest.lock"];
 
 /// Source types for locked entries - supports both simple strings and composite structures
 #[derive(Debug, Clone, PartialEq)]
@@ -272,19 +279,43 @@ impl Lockfile {
         }
     }
 
-    /// Get the lockfile path relative to the manifest
+    /// Get the lockfile path relative to the manifest.
+    ///
+    /// The lockfile name is derived from the manifest filename by removing the
+    /// extension (if any) and appending ".lock.yaml".
+    ///
+    /// Examples:
+    /// - aps.yaml      -> aps.lock.yaml
+    /// - aps-xxx.yaml  -> aps-xxx.lock.yaml
+    /// - custom        -> custom.lock.yaml
     pub fn path_for_manifest(manifest_path: &Path) -> PathBuf {
+        // Derive the lockfile name from the manifest filename.
+        let lockfile_name = manifest_path
+            .file_name()
+            .and_then(|os_str| os_str.to_str())
+            .map(|filename| {
+                // Split on the last '.' to drop the extension, if present.
+                if let Some((stem, _ext)) = filename.rsplit_once('.') {
+                    format!("{stem}.lock.yaml")
+                } else {
+                    format!("{filename}.lock.yaml")
+                }
+            })
+            // Fallback to the historical default if we can't determine a filename.
+            .unwrap_or_else(|| "aps.lock.yaml".to_string());
+
         manifest_path
             .parent()
-            .map(|p| p.join(LOCKFILE_NAME))
-            .unwrap_or_else(|| PathBuf::from(LOCKFILE_NAME))
+            .map(|p| p.join(&lockfile_name))
+            .unwrap_or_else(|| PathBuf::from(lockfile_name))
     }
 
-    /// Load a lockfile from disk
+    /// Load a lockfile from disk.
     ///
-    /// Supports backward compatibility with legacy filename (aps.manifest.lock)
+    /// Supports backward compatibility with legacy filenames
+    /// (e.g. aps.lock.yaml, aps.manifest.lock).
     pub fn load(path: &Path) -> Result<Self> {
-        // Try loading from the provided path first (new filename)
+        // Try loading from the provided path first (canonical, manifest-based name).
         if path.exists() {
             let content = std::fs::read_to_string(path)
                 .map_err(|e| ApsError::io(e, format!("Failed to read lockfile at {:?}", path)))?;
@@ -298,16 +329,19 @@ impl Lockfile {
             return Ok(lockfile);
         }
 
-        // Fall back to legacy filename for backward compatibility
-        let legacy_path = path
-            .parent()
-            .map(|p| p.join(LEGACY_LOCKFILE_NAME))
-            .unwrap_or_else(|| PathBuf::from(LEGACY_LOCKFILE_NAME));
+        // Fall back to legacy filenames for backward compatibility.
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
-        if legacy_path.exists() {
+        for legacy_name in LEGACY_LOCKFILE_NAMES {
+            let legacy_path = dir.join(legacy_name);
+            if !legacy_path.exists() {
+                continue;
+            }
+
             info!(
-                "Loading legacy lockfile '{}' (will be migrated to '{}' on next save)",
-                LEGACY_LOCKFILE_NAME, LOCKFILE_NAME
+                "Loading legacy lockfile '{:?}' (will be migrated to '{:?}' on next save)",
+                legacy_path.file_name().unwrap_or_default(),
+                path.file_name().unwrap_or_default()
             );
 
             let content = std::fs::read_to_string(&legacy_path).map_err(|e| {
@@ -329,7 +363,7 @@ impl Lockfile {
         Err(ApsError::LockfileNotFound)
     }
 
-    /// Save the lockfile to disk
+    /// Save the lockfile to disk.
     ///
     /// Automatically migrates from legacy filename if it exists.
     /// Always stamps the current aps version before writing.
@@ -344,24 +378,28 @@ impl Lockfile {
 
         info!("Saved lockfile to {:?}", path);
 
-        // Automatic migration: Remove legacy lockfile if it exists
-        let legacy_path = path
-            .parent()
-            .map(|p| p.join(LEGACY_LOCKFILE_NAME))
-            .unwrap_or_else(|| PathBuf::from(LEGACY_LOCKFILE_NAME));
+        // Automatic migration: Remove legacy lockfiles in the same directory if
+        // they exist and are not the canonical path we just wrote.
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
-        if legacy_path.exists() && legacy_path != path {
+        for legacy_name in LEGACY_LOCKFILE_NAMES {
+            let legacy_path = dir.join(legacy_name);
+            if !legacy_path.exists() || legacy_path == path {
+                continue;
+            }
+
             match std::fs::remove_file(&legacy_path) {
                 Ok(_) => {
                     info!(
-                        "Migrated lockfile: removed legacy file '{}'",
-                        LEGACY_LOCKFILE_NAME
+                        "Migrated lockfile: removed legacy file '{:?}'",
+                        legacy_path.file_name().unwrap_or_default()
                     );
                 }
                 Err(e) => {
                     debug!(
-                        "Could not remove legacy lockfile '{}': {}",
-                        LEGACY_LOCKFILE_NAME, e
+                        "Could not remove legacy lockfile '{:?}': {}",
+                        legacy_path.file_name().unwrap_or_default(),
+                        e
                     );
                 }
             }
