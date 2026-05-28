@@ -1,3 +1,13 @@
+# Archieved
+
+I initially built to share Agent Skills across my projects, but found more effective tools.
+
+I think these projects are worth checking out:
+
+- [SkillShare](https://github.com/runkids/skillshare)
+
+<hr>
+
 <div align="center"> <!-- markdownlint-disable MD033 MD041 -->
 
 # APS - Agentic Prompt Sync
