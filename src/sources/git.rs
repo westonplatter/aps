@@ -2,8 +2,10 @@
 
 use super::{expand_path, GitInfo, ResolvedSource, SourceAdapter};
 use crate::error::{ApsError, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use tempfile::TempDir;
 use tracing::{debug, info};
 
@@ -87,6 +89,139 @@ pub struct ResolvedGitSource {
     pub resolved_ref: String,
     /// Commit SHA at the resolved ref
     pub commit_sha: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GitCloneKey {
+    repo: String,
+    git_ref: String,
+    shallow: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GitCommitKey {
+    repo: String,
+    commit_sha: String,
+    resolved_ref: String,
+}
+
+/// Cache for git clones within a single sync run
+pub struct GitCloneCache {
+    latest: HashMap<GitCloneKey, Arc<ResolvedGitSource>>,
+    commits: HashMap<GitCommitKey, Arc<ResolvedGitSource>>,
+}
+
+impl GitCloneCache {
+    pub fn new() -> Self {
+        Self {
+            latest: HashMap::new(),
+            commits: HashMap::new(),
+        }
+    }
+
+    pub fn resolve_latest(
+        &mut self,
+        repo: &str,
+        git_ref: &str,
+        shallow: bool,
+    ) -> Result<Arc<ResolvedGitSource>> {
+        let key = GitCloneKey {
+            repo: repo.to_string(),
+            git_ref: git_ref.to_string(),
+            shallow,
+        };
+        if let Some(cached) = self.latest.get(&key) {
+            info!("Reusing cached clone for {} @ {}", repo, git_ref);
+            return Ok(Arc::clone(cached));
+        }
+
+        let resolved = Arc::new(clone_and_resolve(repo, git_ref, shallow)?);
+        self.latest.insert(key, Arc::clone(&resolved));
+        Ok(resolved)
+    }
+
+    pub fn resolve_commit(
+        &mut self,
+        repo: &str,
+        commit_sha: &str,
+        resolved_ref: &str,
+    ) -> Result<Arc<ResolvedGitSource>> {
+        let key = GitCommitKey {
+            repo: repo.to_string(),
+            commit_sha: commit_sha.to_string(),
+            resolved_ref: resolved_ref.to_string(),
+        };
+        if let Some(cached) = self.commits.get(&key) {
+            info!(
+                "Reusing cached clone for {} @ {}",
+                repo,
+                &commit_sha[..8.min(commit_sha.len())]
+            );
+            return Ok(Arc::clone(cached));
+        }
+
+        let resolved = Arc::new(clone_at_commit(repo, commit_sha, resolved_ref)?);
+        self.commits.insert(key, Arc::clone(&resolved));
+        Ok(resolved)
+    }
+}
+
+/// Resolve a git source using the per-run clone cache.
+pub fn resolve_git_source_with_cache(
+    repo: &str,
+    git_ref: &str,
+    shallow: bool,
+    path: Option<&str>,
+    cache: &mut GitCloneCache,
+) -> Result<ResolvedSource> {
+    let resolved_git = cache.resolve_latest(repo, git_ref, shallow)?;
+    let path = expand_path(path.unwrap_or("."));
+    let source_path = if path == "." {
+        resolved_git.repo_path.clone()
+    } else {
+        resolved_git.repo_path.join(&path)
+    };
+
+    let git_info = GitInfo {
+        resolved_ref: resolved_git.resolved_ref.clone(),
+        commit_sha: resolved_git.commit_sha.clone(),
+    };
+
+    Ok(ResolvedSource::git(
+        source_path,
+        repo.to_string(),
+        git_info,
+        Arc::clone(&resolved_git),
+    ))
+}
+
+/// Resolve a git source at a specific commit using the per-run clone cache.
+pub fn resolve_git_source_at_commit_with_cache(
+    repo: &str,
+    commit_sha: &str,
+    resolved_ref: &str,
+    path: Option<&str>,
+    cache: &mut GitCloneCache,
+) -> Result<ResolvedSource> {
+    let resolved_git = cache.resolve_commit(repo, commit_sha, resolved_ref)?;
+    let path = expand_path(path.unwrap_or("."));
+    let source_path = if path == "." {
+        resolved_git.repo_path.clone()
+    } else {
+        resolved_git.repo_path.join(&path)
+    };
+
+    let git_info = GitInfo {
+        resolved_ref: resolved_git.resolved_ref.clone(),
+        commit_sha: resolved_git.commit_sha.clone(),
+    };
+
+    Ok(ResolvedSource::git(
+        source_path,
+        repo.to_string(),
+        git_info,
+        Arc::clone(&resolved_git),
+    ))
 }
 
 /// Clone a git repository and resolve the ref using the git CLI.

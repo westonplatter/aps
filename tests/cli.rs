@@ -120,6 +120,32 @@ fn sync_with_empty_manifest_succeeds() {
 }
 
 #[test]
+fn sync_with_custom_manifest_uses_manifest_based_lockfile_name() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Use a non-default manifest filename.
+    let manifest_name = "aps-custom.yaml";
+    temp.child(manifest_name)
+        .write_str("entries: []\n")
+        .unwrap();
+
+    aps()
+        .args(["sync", "--manifest", manifest_name])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Lockfile name should be derived from the manifest filename.
+    temp.child("aps-custom.lock.yaml")
+        .assert(predicate::path::exists());
+
+    // The historical default lockfile name should not be created when a custom
+    // manifest is explicitly used.
+    temp.child("aps.lock.yaml")
+        .assert(predicate::path::missing());
+}
+
+#[test]
 fn sync_dry_run_does_not_create_lockfile() {
     let temp = assert_fs::TempDir::new().unwrap();
 
@@ -246,6 +272,34 @@ fn status_works_after_sync() {
     aps().arg("status").current_dir(&temp).assert().success();
 }
 
+#[test]
+fn status_with_custom_manifest_uses_matching_lockfile() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let manifest_name = "aps-status.yaml";
+    temp.child(manifest_name)
+        .write_str("entries: []\n")
+        .unwrap();
+
+    // First sync to create the manifest-based lockfile.
+    aps()
+        .args(["sync", "--manifest", manifest_name])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Ensure the derived lockfile exists.
+    temp.child("aps-status.lock.yaml")
+        .assert(predicate::path::exists());
+
+    // Then status should succeed when pointing at the same manifest.
+    aps()
+        .args(["status", "--manifest", manifest_name])
+        .current_dir(&temp)
+        .assert()
+        .success();
+}
+
 // ============================================================================
 // Catalog Command Tests
 // ============================================================================
@@ -358,6 +412,75 @@ fn sync_with_symlink_creates_symlink() {
         let metadata = std::fs::symlink_metadata(dest_path.path()).unwrap();
         assert!(metadata.file_type().is_symlink());
     }
+}
+
+#[test]
+fn sync_shows_progress_per_entry() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create source files
+    let source_dir = temp.child("source");
+    source_dir.create_dir_all().unwrap();
+    source_dir
+        .child("AGENTS-one.md")
+        .write_str("# One\n")
+        .unwrap();
+    source_dir
+        .child("AGENTS-two.md")
+        .write_str("# Two\n")
+        .unwrap();
+
+    // Create manifest with two entries so we can see (1/2), (2/2)
+    let manifest = format!(
+        r#"entries:
+  - id: first
+    kind: agents_md
+    source:
+      type: filesystem
+      root: {root}
+      path: AGENTS-one.md
+    dest: ./AGENTS-one.md
+  - id: second
+    kind: agents_md
+    source:
+      type: filesystem
+      root: {root}
+      path: AGENTS-two.md
+    dest: ./AGENTS-two.md
+"#,
+        root = source_dir.path().display()
+    );
+
+    temp.child("aps.yaml").write_str(&manifest).unwrap();
+
+    let output = aps()
+        .arg("sync")
+        .current_dir(&temp)
+        .output()
+        .expect("failed to run aps sync");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(output.status.success(), "aps sync failed: {}", stdout);
+
+    // Ensure progress markers are present
+    assert!(
+        stdout.contains("(1/2)"),
+        "expected progress for first entry, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("(2/2)"),
+        "expected progress for second entry, got: {stdout}"
+    );
+
+    // Progress should appear before the final sync summary header
+    let first_progress = stdout.find("(1/2)").unwrap();
+    let header_pos = stdout
+        .find("Syncing from")
+        .expect("expected 'Syncing from' header in output");
+    assert!(
+        first_progress < header_pos,
+        "expected progress lines before summary header, got: {stdout}"
+    );
 }
 
 // ============================================================================
@@ -841,6 +964,145 @@ fn sync_shows_upgrade_available_status() {
         );
 }
 
+#[test]
+fn sync_reuses_git_clone_for_same_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source_repo = temp.child("source-repo");
+    source_repo.create_dir_all().unwrap();
+    create_git_repo_with_agents_md(source_repo.path(), "# Version 1\nOriginal content\n");
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: agents-one
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-1.md
+  - id: agents-two
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-2.md
+"#,
+        source_repo.path().display(),
+        source_repo.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    let output = aps()
+        .args(["--verbose", "sync"])
+        .current_dir(&project)
+        .output()
+        .expect("Failed to run aps sync");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let combined_output = format!("{stdout}\n{stderr}");
+    assert!(
+        output.status.success(),
+        "aps sync failed: {combined_output}"
+    );
+
+    let clone_count = combined_output.matches("Cloning git repository:").count();
+    let reuse_count = combined_output.matches("Reusing cached clone").count();
+    assert_eq!(
+        clone_count, 1,
+        "expected one clone for shared repo, output: {combined_output}"
+    );
+    assert!(
+        reuse_count >= 1,
+        "expected cached clone reuse, output: {combined_output}"
+    );
+
+    project
+        .child("AGENTS-1.md")
+        .assert(predicate::path::exists());
+    project
+        .child("AGENTS-2.md")
+        .assert(predicate::path::exists());
+}
+
+#[test]
+fn sync_clones_each_distinct_repo_once() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let source_repo_a = temp.child("source-repo-a");
+    source_repo_a.create_dir_all().unwrap();
+    create_git_repo_with_agents_md(source_repo_a.path(), "# Repo A\n");
+
+    let source_repo_b = temp.child("source-repo-b");
+    source_repo_b.create_dir_all().unwrap();
+    create_git_repo_with_agents_md(source_repo_b.path(), "# Repo B\n");
+
+    let project = temp.child("project");
+    project.create_dir_all().unwrap();
+
+    let manifest = format!(
+        r#"entries:
+  - id: agents-a
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-A.md
+  - id: agents-b
+    kind: agents_md
+    source:
+      type: git
+      repo: {}
+      ref: main
+      shallow: false
+      path: AGENTS.md
+    dest: ./AGENTS-B.md
+"#,
+        source_repo_a.path().display(),
+        source_repo_b.path().display()
+    );
+
+    project.child("aps.yaml").write_str(&manifest).unwrap();
+
+    let output = aps()
+        .args(["--verbose", "sync"])
+        .current_dir(&project)
+        .output()
+        .expect("Failed to run aps sync");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let combined_output = format!("{stdout}\n{stderr}");
+    assert!(
+        output.status.success(),
+        "aps sync failed: {combined_output}"
+    );
+
+    let clone_count = combined_output.matches("Cloning git repository:").count();
+    let reuse_count = combined_output.matches("Reusing cached clone").count();
+    assert_eq!(
+        clone_count, 2,
+        "expected one clone per distinct repo, output: {combined_output}"
+    );
+    assert_eq!(
+        reuse_count, 0,
+        "did not expect cache reuse across distinct repos, output: {combined_output}"
+    );
+}
+
 // ============================================================================
 // Composite Agents MD Tests (Live Git Sources)
 // ============================================================================
@@ -1038,6 +1300,7 @@ fn add_creates_manifest_entry_with_no_sync() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module",
             "--no-sync",
         ])
@@ -1071,6 +1334,7 @@ fn add_parses_skill_md_url_correctly() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/hashicorp/agent-skills/blob/main/terraform/module-generation/skills/refactor-module/SKILL.md",
             "--no-sync",
         ])
@@ -1099,6 +1363,7 @@ fn add_with_custom_id() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/main/path/to/skill",
             "--id",
             "my-custom-skill",
@@ -1138,6 +1403,7 @@ fn add_to_existing_manifest() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/main/path/to/new-skill",
             "--no-sync",
         ])
@@ -1173,6 +1439,7 @@ fn add_duplicate_id_fails() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/main/path/to/duplicate-skill",
             "--no-sync",
         ])
@@ -1183,23 +1450,6 @@ fn add_duplicate_id_fails() {
 }
 
 #[test]
-fn add_invalid_github_url_fails() {
-    let temp = assert_fs::TempDir::new().unwrap();
-
-    // Non-GitHub URL
-    aps()
-        .args([
-            "add",
-            "https://gitlab.com/owner/repo/blob/main/path",
-            "--no-sync",
-        ])
-        .current_dir(&temp)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("github.com"));
-}
-
-#[test]
 fn add_invalid_url_format_fails() {
     let temp = assert_fs::TempDir::new().unwrap();
 
@@ -1207,6 +1457,7 @@ fn add_invalid_url_format_fails() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/commits/main/path",
             "--no-sync",
         ])
@@ -1217,6 +1468,116 @@ fn add_invalid_url_format_fails() {
 }
 
 #[test]
+fn add_invalid_repo_identifier_fails() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args(["add", "agent_skill", "not-a-repo", "--no-sync"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Expected an HTTPS/SSH Git URL"));
+}
+
+#[test]
+fn add_cursor_rules_from_https_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "cursor_rules",
+            "https://github.com/owner/repo",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: cursor_rules"));
+    manifest.assert(predicate::str::contains(
+        "repo: https://github.com/owner/repo.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: auto"));
+    manifest.assert(predicate::str::contains("path: .cursor/rules"));
+}
+
+#[test]
+fn add_cursor_rules_from_ssh_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "cursor_rules",
+            "git@github.com:org/repo.git",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: cursor_rules"));
+    manifest.assert(predicate::str::contains(
+        "repo: git@github.com:org/repo.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: auto"));
+    manifest.assert(predicate::str::contains("path: .cursor/rules"));
+}
+
+#[test]
+fn add_cursor_skills_root_from_ssh_repo() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "cursor_skills_root",
+            "git@github.com:org/skills.git",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: cursor_skills_root"));
+    manifest.assert(predicate::str::contains(
+        "repo: git@github.com:org/skills.git",
+    ));
+    manifest.assert(predicate::str::contains("ref: auto"));
+    manifest.assert(predicate::str::contains("path: .cursor/skills"));
+}
+
+#[test]
+fn add_agent_skill_from_ssh_with_path() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    aps()
+        .args([
+            "add",
+            "agent_skill",
+            "git@github.com:org/private-skills.git",
+            "--path",
+            "skills/my-skill",
+            "--no-sync",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    let manifest = temp.child("aps.yaml");
+    manifest.assert(predicate::str::contains("kind: agent_skill"));
+    manifest.assert(predicate::str::contains(
+        "repo: git@github.com:org/private-skills.git",
+    ));
+    manifest.assert(predicate::str::contains("path: skills/my-skill"));
+    manifest.assert(predicate::str::contains("dest: .claude/skills/my-skill/"));
+}
+
+#[test]
 fn add_with_tree_url() {
     let temp = assert_fs::TempDir::new().unwrap();
 
@@ -1224,6 +1585,7 @@ fn add_with_tree_url() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/tree/main/path/to/skill",
             "--no-sync",
         ])
@@ -1243,6 +1605,7 @@ fn add_with_different_ref() {
     aps()
         .args([
             "add",
+            "agent_skill",
             "https://github.com/owner/repo/blob/v1.2.3/path/to/skill",
             "--no-sync",
         ])
@@ -1260,9 +1623,9 @@ fn add_help_shows_usage() {
         .args(["add", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("GitHub URL"))
         .stdout(predicate::str::contains("--id"))
-        .stdout(predicate::str::contains("--kind"))
+        .stdout(predicate::str::contains("--path"))
+        .stdout(predicate::str::contains("--ref"))
         .stdout(predicate::str::contains("--no-sync"))
         .stdout(predicate::str::contains("--all"));
 }
